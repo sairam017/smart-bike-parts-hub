@@ -1,0 +1,29 @@
+/* Container */
+.parts-wrap{padding:1rem;max-width:1160px;margin:0 auto}
+.parts-wrap h2{margin:.25rem 0 1rem;color:#1f2937;font-weight:900}
+
+/* Grid */
+.parts-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:.85rem;margin-top:.6rem}
+
+/* Card */
+.part-card{background:#fff;padding:8px;border-radius:12px;box-shadow:0 6px 20px rgba(2,6,23,.07);border:1px solid #eef2f7;display:flex;flex-direction:column;gap:.45rem;transition:transform .15s ease, box-shadow .2s ease}
+.part-card:hover{transform:translateY(-2px);box-shadow:0 12px 28px rgba(2,6,23,.12)}
+.part-card h4{margin:.15rem 0 .15rem;font-size:.9rem;font-weight:700;color:#0f172a}
+.part-card.compact{padding:6px;border-radius:10px;gap:.35rem}
+.part-card.compact h4{font-size:.7rem;font-weight:600}
+
+/* Meta */
+.part-meta{font-size:.9rem;color:#475569}
+.part-price{background:#e6f2ff;color:#0a2aa7;font-weight:800;padding:1px 6px;border-radius:999px;margin-left:.25rem;display:inline-block;font-size:.7rem}
+
+/* Rating quick buttons */
+.part-card .rate-buttons button{padding:3px 8px;border:1px solid #e5e7eb;background:#fff;border-radius:8px;cursor:pointer}
+.part-card .rate-buttons button:hover{background:#f8fafc}
+
+/* Mini buttons */
+.btn-outline.mini,.btn-primary.mini{font-size:.55rem;padding:4px 6px;border-radius:6px;line-height:1.1}
+
+/* Toasts */
+.toast-container{position:fixed;bottom:1rem;right:1rem;display:flex;flex-direction:column;gap:.5rem;z-index:1100}
+.toast{background:#0a2aa7;color:#fff;padding:.6rem .9rem;border-radius:10px;font-size:.75rem;font-weight:600;box-shadow:0 8px 24px -4px rgba(10,42,167,.4),0 2px 6px rgba(0,0,0,.08);animation:fadeSlide .35s ease;display:flex;align-items:center;gap:.4rem}
+@keyframes fadeSlide{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}

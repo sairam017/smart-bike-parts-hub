@@ -1,0 +1,8 @@
+.shops-wrap{padding:1rem}
+.shops-list{list-style:none;padding:0;margin:.75rem 0;display:grid;grid-template-columns:1fr;gap:.75rem}
+.shop-item{background:#fff;border:1px solid #e5e7eb;border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,.05);padding:1rem}
+.shop-title{font-weight:600}
+.shop-meta{color:#555;font-size:.9rem;margin-top:.25rem}
+.map-link{display:inline-block;margin-top:.5rem;color:#2563eb}
+.chip{display:inline-block;background:#eef2ff;color:#3730a3;border-radius:999px;padding:.1rem .5rem;font-size:.75rem;margin-left:.5rem}
+.error-text{color:#b91c1c}
