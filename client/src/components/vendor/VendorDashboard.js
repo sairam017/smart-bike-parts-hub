@@ -644,7 +644,45 @@ const VendorDashboard = () => {
                   </select>
                   <input name="price" type="number" placeholder="Price (INR)" value={part.price} onChange={onPartChange} required className="input-blue" />
                   <textarea name="description" placeholder="Description" value={part.description} onChange={onPartChange} className="input-blue" style={{ minHeight:90 }} />
-                  <input name="imageUrl" placeholder="Image URL" value={part.imageUrl} onChange={onPartChange} className="input-blue" />
+                  
+                  {/* Image Upload Section for Edit Form */}
+                  <div>
+                    <label style={{display:'block', marginBottom:6, color:'#1d4ed8'}}>Product Image</label>
+                    <input type="file" accept="image/*" capture="environment" onChange={onImageChange} className="input-blue" style={{ padding:0 }} />
+                    <input name="imageUrl" placeholder="...or paste an Image URL" value={part.imageUrl} onChange={onPartChange} className="input-blue" style={{ marginTop:8 }} />
+                    {part.image && (
+                      <div style={{marginTop:8}}>
+                        <img alt="preview" src={URL.createObjectURL(part.image)} style={{maxWidth:220, maxHeight:220, borderRadius:8, border:'2px solid #1d4ed8'}} />
+                      </div>
+                    )}
+                    {/* Show current image if no new image selected */}
+                    {!part.image && part.imageUrl && (
+                      <div style={{marginTop:8}}>
+                        <p style={{fontSize:'0.9em', color:'#666'}}>Current image:</p>
+                        <img alt="current" src={part.imageUrl.startsWith('http') ? part.imageUrl : `http://localhost:5000${part.imageUrl}`} style={{maxWidth:220, maxHeight:220, borderRadius:8, border:'2px solid #ccc'}} />
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Camera functionality for Edit Form */}
+                  <div style={{display:'grid', gridTemplateColumns:'1fr auto auto', gap:'0.5rem', alignItems:'center'}}>
+                    <div style={{color:'#1d4ed8'}}>Or use camera</div>
+                    {!cameraOn ? (
+                      <button type="button" className="btn-outline" onClick={startCamera}>Use Camera</button>
+                    ) : (
+                      <button type="button" className="btn-outline" onClick={stopCamera}>Stop Camera</button>
+                    )}
+                    {cameraOn && (
+                      <button type="button" className="btn-primary" onClick={capturePhoto}>Capture</button>
+                    )}
+                  </div>
+                  {cameraOn && (
+                    <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem'}}>
+                      <video ref={videoRef} autoPlay style={{width:'100%', maxWidth:300, borderRadius:8, border:'2px solid #1d4ed8'}} />
+                      <canvas ref={canvasRef} style={{width:'100%', maxWidth:300, borderRadius:8, border:'2px solid #ccc'}} />
+                    </div>
+                  )}
+                  
                   <div style={{display:'flex', gap:8}}>
                     <button type="submit" disabled={creating} className="btn-primary">{creating ? 'Saving...' : 'Save Changes'}</button>
                     <button type="button" className="btn-outline" onClick={cancelEdit}>Cancel</button>
