@@ -128,6 +128,54 @@ async def get_pipeline_status():
         logger.error(f"Pipeline status error: {e}")
         raise HTTPException(status_code=500, detail=f"Status check error: {str(e)}")
 
+@app.post('/data-pipeline/sync-product')
+async def sync_single_product(product_data: Dict[str, Any]):
+    """Sync a single product to CSV when it's created or updated from Node.js"""
+    try:
+        logger.info(f"Syncing single product: {product_data.get('name', 'Unknown')}")
+        
+        # Transform MongoDB document to match our schema
+        transformed_data = {
+            "product_id": str(product_data.get('_id', '')),
+            "name": product_data.get('name'),
+            "model": product_data.get('model'),
+            "company": product_data.get('company'),
+            "vehicleYear": product_data.get('vehicleYear'),
+            "brand": product_data.get('brand'),
+            "type": product_data.get('type'),
+            "price": float(product_data.get('price', 0)),
+            "description": product_data.get('description'),
+            "countInStock": product_data.get('countInStock', 0),
+            "rating": float(product_data.get('rating', 0)),
+            "numReviews": product_data.get('numReviews', 0),
+            "compatibility": product_data.get('compatibility', []),
+            "images": product_data.get('images', []),
+            "vendor_id": str(product_data.get('vendor', '')),
+            "shop_id": str(product_data.get('shop', '')),
+            "shop_name": product_data.get('shop_name'),
+            "shop_address": product_data.get('shop_address'),
+            "shop_lat": product_data.get('shop_lat'),
+            "shop_lon": product_data.get('shop_lon'),
+            "created_at": product_data.get('createdAt'),
+            "updated_at": product_data.get('updatedAt')
+        }
+        
+        # Create the ProductUpdateRequest with transformed data
+        update_request = ProductUpdateRequest(
+            action="create",
+            product_data=transformed_data
+        )
+        
+        result = await data_pipeline.handle_product_update(update_request)
+        return {
+            "success": True,
+            "message": f"Product '{product_data.get('name', 'Unknown')}' synced to CSV",
+            "product_id": transformed_data["product_id"]
+        }
+    except Exception as e:
+        logger.error(f"Single product sync error: {e}")
+        raise HTTPException(status_code=500, detail=f"Product sync error: {str(e)}")
+
 # ============================================================================
 # MODEL TRAINING ENDPOINTS (Placeholder - to be implemented)
 # ============================================================================

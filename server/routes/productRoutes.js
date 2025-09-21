@@ -4,6 +4,22 @@ const BikePart = require('../models/BikePart');
 const Shop = require('../models/Shop');
 const Order = require('../models/Order');
 const auth = require('../middleware/authMiddleware');
+const axios = require('axios');
+
+// ML Service URL
+const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'http://localhost:8010';
+
+// Helper function to update CSV when products are added/modified
+async function updateCSVPipeline(productData) {
+  try {
+    // Call FastAPI service to add the new product to CSV
+    await axios.post(`${ML_SERVICE_URL}/data-pipeline/sync-product`, productData);
+    console.log('CSV updated successfully for product:', productData._id || productData.name);
+  } catch (error) {
+    console.error('Failed to update CSV:', error.message);
+    // Don't throw error - CSV update failure shouldn't break product creation
+  }
+}
 
 // Public list
 // Unique companies (exclude null/empty)
@@ -103,12 +119,22 @@ router.post('/', auth, async (req, res) => {
       return { ...base, model: m, name, vendor: req.user.id, shop: shopId };
     });
     createdDocs = await BikePart.insertMany(docs);
+    
+    // Update CSV for each created product
+    for (const doc of createdDocs) {
+      await updateCSVPipeline(doc);
+    }
+    
     return res.status(201).json({ created: createdDocs.map(d => d._id) });
   } else {
     const model = (models[0] || base.model || '').trim();
     const name = base.name || [base.company, model].filter(Boolean).join(' ') || 'Bike Part';
     const payload = { ...base, model, name, vendor: req.user.id, shop: shopId };
     const created = await BikePart.create(payload);
+    
+    // Update CSV for the new product
+    await updateCSVPipeline(created);
+    
     return res.status(201).json(created);
   }
 });
