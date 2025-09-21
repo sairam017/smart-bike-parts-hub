@@ -149,8 +149,28 @@ router.put('/:id', auth, async (req, res) => {
   } else if (req.user.role !== 'admin') {
     return res.status(403).json({ message: 'Forbidden' });
   }
+  
+  // Handle image updates - merge new images with existing ones
+  if (req.body.images || req.body.imageUrl) {
+    const currentImages = product.images || [];
+    const newImages = Array.isArray(req.body.images) ? req.body.images : [];
+    
+    // If imageUrl is provided, add it to the images array
+    if (req.body.imageUrl) {
+      newImages.unshift(req.body.imageUrl);
+    }
+    
+    // Combine existing and new images, removing duplicates
+    const combinedImages = [...new Set([...currentImages, ...newImages])];
+    req.body.images = combinedImages;
+  }
+  
   Object.assign(product, req.body);
   await product.save();
+  
+  // Update CSV pipeline after successful update
+  await updateCSVPipeline(product);
+  
   res.json(product);
 });
 
