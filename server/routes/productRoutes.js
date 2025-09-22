@@ -9,15 +9,45 @@ const axios = require('axios');
 // ML Service URL
 const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'http://localhost:8010';
 
+// Track processing products to prevent duplicates
+const processingProducts = new Set();
+
 // Helper function to update CSV when products are added/modified
 async function updateCSVPipeline(productData) {
+  const productId = productData._id?.toString() || productData.id?.toString();
+  
+  if (!productId) {
+    console.error('No product ID found for CSV update');
+    return;
+  }
+  
+  // Prevent duplicate processing
+  if (processingProducts.has(productId)) {
+    console.log('Product already being processed for CSV update:', productId);
+    return;
+  }
+  
   try {
+    processingProducts.add(productId);
+    
+    // Add small delay to prevent race conditions
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
     // Call FastAPI service to add the new product to CSV
     await axios.post(`${ML_SERVICE_URL}/data-pipeline/sync-product`, productData);
     console.log('CSV updated successfully for product:', productData._id || productData.name);
   } catch (error) {
     console.error('Failed to update CSV:', error.message);
+    // Log more details for debugging
+    if (error.response?.data) {
+      console.error('API Error Details:', error.response.data);
+    }
     // Don't throw error - CSV update failure shouldn't break product creation
+  } finally {
+    // Remove from processing set after a delay
+    setTimeout(() => {
+      processingProducts.delete(productId);
+    }, 5000); // Keep in set for 5 seconds to prevent rapid duplicates
   }
 }
 
@@ -57,7 +87,7 @@ router.get('/groups/years', async (_req, res) => {
 
 // Public list
 router.get('/', async (req, res) => {
-  const pageSize = Number(req.query.pageSize) > 0 ? Math.min(Number(req.query.pageSize), 100) : 10;
+  const pageSize = Number(req.query.pageSize) > 0 ? Math.min(Number(req.query.pageSize), 100) : 50;
   const page = Number(req.query.page) || 1;
   const filter = {};
   const simpleFields = ['brand','company','model','type','shop'];
@@ -100,42 +130,57 @@ router.get('/:id', async (req, res) => {
 
 // Vendor/Admin create part tied to vendor's own shop
 router.post('/', auth, async (req, res) => {
-  if (!['vendor', 'admin'].includes(req.user.role)) return res.status(403).json({ message: 'Forbidden' });
-  let shopId = req.body.shop;
-  if (req.user.role === 'vendor') {
-    const myShop = await Shop.findOne({ vendor: req.user.id });
-    if (!myShop) return res.status(400).json({ message: 'Create/update your shop first' });
-    shopId = myShop._id;
-  }
-  // Accept either a single model or an array of models; expand to multiple docs when needed
-  const images = Array.isArray(req.body.images) ? req.body.images : [];
-  if (req.body.imageUrl) images.unshift(req.body.imageUrl);
-  const base = { ...req.body, images };
-  const models = Array.isArray(req.body.models) ? req.body.models : [];
-  let createdDocs = [];
-  if (models.filter(Boolean).length > 1) {
-    const docs = models.filter(Boolean).map(m => {
-      const name = base.name || [base.company, m].filter(Boolean).join(' ') || 'Bike Part';
-      return { ...base, model: m, name, vendor: req.user.id, shop: shopId };
-    });
-    createdDocs = await BikePart.insertMany(docs);
+  try {
+    if (!['vendor', 'admin'].includes(req.user.role)) return res.status(403).json({ message: 'Forbidden' });
+    let shopId = req.body.shop;
+    if (req.user.role === 'vendor') {
+      const myShop = await Shop.findOne({ vendor: req.user.id });
+      if (!myShop) return res.status(400).json({ message: 'Create/update your shop first' });
+      shopId = myShop._id;
+    }
+    // Accept either a single model or an array of models; expand to multiple docs when needed
+    const images = Array.isArray(req.body.images) ? req.body.images : [];
+    if (req.body.imageUrl) images.unshift(req.body.imageUrl);
+    const base = { ...req.body, images };
+    const models = Array.isArray(req.body.models) ? req.body.models : [];
+    let createdDocs = [];
+    if (models.filter(Boolean).length > 1) {
+      const docs = models.filter(Boolean).map(m => {
+        const name = base.name || [base.company, m].filter(Boolean).join(' ') || 'Bike Part';
+        return { ...base, model: m, name, vendor: req.user.id, shop: shopId };
+      });
+      createdDocs = await BikePart.insertMany(docs);
+      
+      // Update CSV for each created product
+      for (const doc of createdDocs) {
+        await updateCSVPipeline(doc);
+      }
+      
+      return res.status(201).json({ created: createdDocs.map(d => d._id) });
+    } else {
+      const model = (models[0] || base.model || '').trim();
+      const name = base.name || [base.company, model].filter(Boolean).join(' ') || 'Bike Part';
+      const payload = { ...base, model, name, vendor: req.user.id, shop: shopId };
+      const created = await BikePart.create(payload);
+      
+      // Update CSV for the new product
+      await updateCSVPipeline(created);
+      
+      return res.status(201).json(created);
+    }
+  } catch (error) {
+    console.error('Error creating product:', error);
     
-    // Update CSV for each created product
-    for (const doc of createdDocs) {
-      await updateCSVPipeline(doc);
+    // Handle duplicate key error
+    if (error.code === 11000) {
+      return res.status(409).json({ 
+        message: 'A product with these exact details already exists. Please modify the product details.' 
+      });
     }
     
-    return res.status(201).json({ created: createdDocs.map(d => d._id) });
-  } else {
-    const model = (models[0] || base.model || '').trim();
-    const name = base.name || [base.company, model].filter(Boolean).join(' ') || 'Bike Part';
-    const payload = { ...base, model, name, vendor: req.user.id, shop: shopId };
-    const created = await BikePart.create(payload);
-    
-    // Update CSV for the new product
-    await updateCSVPipeline(created);
-    
-    return res.status(201).json(created);
+    return res.status(500).json({ 
+      message: error.message || 'Failed to create product' 
+    });
   }
 });
 

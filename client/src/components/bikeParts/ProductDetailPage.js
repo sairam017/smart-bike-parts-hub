@@ -7,6 +7,265 @@ import useCart from '../../hooks/useCart';
 import LocationContext from '../../context/LocationContext';
 import { formatINR } from '../../utils/currency';
 
+// Enhanced Image Gallery Component
+function ImageGallery({ images, productName, onImageClick }) {
+  const [mainImageIndex, setMainImageIndex] = useState(0);
+  
+  const ensureAbsolute = (src) => {
+    if (!src) return '';
+    return src.startsWith('http') ? src : `http://localhost:5000${src}`;
+  };
+
+  if (!images || images.length === 0) {
+    return (
+      <div style={{
+        width: '100%', 
+        height: 300, 
+        background: '#f1f5f9', 
+        borderRadius: 12, 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'center', 
+        color: '#94a3b8',
+        fontSize: '1.1rem'
+      }}>
+        No Image Available
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginBottom: '1rem' }}>
+      {/* Main large image */}
+      <div 
+        style={{
+          width: '100%',
+          height: 300,
+          background: '#f1f5f9',
+          borderRadius: 12,
+          overflow: 'hidden',
+          cursor: 'zoom-in',
+          border: '2px solid #e2e8f0',
+          marginBottom: '0.5rem'
+        }}
+        onClick={() => onImageClick && onImageClick(mainImageIndex)}
+      >
+        <img 
+          src={ensureAbsolute(images[mainImageIndex])} 
+          alt={productName} 
+          style={{
+            width: '100%', 
+            height: '100%', 
+            objectFit: 'contain'
+          }} 
+        />
+      </div>
+      
+      {/* Thumbnail navigation - only show if multiple images */}
+      {images.length > 1 && (
+        <div style={{
+          display: 'flex', 
+          gap: 8, 
+          overflowX: 'auto',
+          paddingBottom: '0.5rem'
+        }}>
+          {images.map((img, index) => (
+            <div
+              key={index}
+              style={{
+                minWidth: 80,
+                height: 60,
+                background: '#f1f5f9',
+                borderRadius: 8,
+                overflow: 'hidden',
+                cursor: 'pointer',
+                border: index === mainImageIndex ? '2px solid #1d4ed8' : '2px solid #e2e8f0',
+                transition: 'border-color 0.2s'
+              }}
+              onClick={() => setMainImageIndex(index)}
+            >
+              <img 
+                src={ensureAbsolute(img)} 
+                alt={`${productName} ${index + 1}`}
+                style={{
+                  width: '100%', 
+                  height: '100%', 
+                  objectFit: 'cover'
+                }} 
+              />
+            </div>
+          ))}
+        </div>
+      )}
+      
+      {/* Image counter */}
+      {images.length > 1 && (
+        <div style={{
+          textAlign: 'center',
+          fontSize: '0.85rem',
+          color: '#64748b',
+          marginTop: '0.25rem'
+        }}>
+          {mainImageIndex + 1} of {images.length}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Image Modal for full-screen viewing
+function ImageModal({ images, isOpen, selectedIndex, onClose, productName }) {
+  const [currentIndex, setCurrentIndex] = useState(selectedIndex);
+  
+  const ensureAbsolute = (src) => {
+    if (!src) return '';
+    return src.startsWith('http') ? src : `http://localhost:5000${src}`;
+  };
+
+  const nextImage = () => {
+    setCurrentIndex((prev) => (prev + 1) % images.length);
+  };
+
+  const prevImage = () => {
+    setCurrentIndex((prev) => (prev - 1 + images.length) % images.length);
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Escape') onClose();
+    if (e.key === 'ArrowRight') nextImage();
+    if (e.key === 'ArrowLeft') prevImage();
+  };
+
+  React.useEffect(() => {
+    setCurrentIndex(selectedIndex);
+  }, [selectedIndex]);
+
+  React.useEffect(() => {
+    if (isOpen) {
+      document.addEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'unset';
+    }
+    
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = 'unset';
+    };
+  }, [isOpen]);
+
+  if (!isOpen || !images || images.length === 0) return null;
+
+  return (
+    <div style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      background: 'rgba(0, 0, 0, 0.9)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 1000,
+      padding: '1rem'
+    }}>
+      {/* Close button */}
+      <button
+        onClick={onClose}
+        style={{
+          position: 'absolute',
+          top: '1rem',
+          right: '1rem',
+          background: 'rgba(255, 255, 255, 0.1)',
+          border: 'none',
+          color: 'white',
+          fontSize: '1.5rem',
+          padding: '0.5rem',
+          borderRadius: '50%',
+          cursor: 'pointer',
+          width: 50,
+          height: 50,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}
+      >
+        ×
+      </button>
+
+      {/* Previous button */}
+      {images.length > 1 && (
+        <button
+          onClick={prevImage}
+          style={{
+            position: 'absolute',
+            left: '1rem',
+            background: 'rgba(255, 255, 255, 0.1)',
+            border: 'none',
+            color: 'white',
+            fontSize: '1.5rem',
+            padding: '0.5rem 0.75rem',
+            borderRadius: '50%',
+            cursor: 'pointer'
+          }}
+        >
+          ‹
+        </button>
+      )}
+
+      {/* Image */}
+      <img
+        src={ensureAbsolute(images[currentIndex])}
+        alt={`${productName} ${currentIndex + 1}`}
+        style={{
+          maxWidth: '90%',
+          maxHeight: '90%',
+          objectFit: 'contain',
+          borderRadius: '8px'
+        }}
+      />
+
+      {/* Next button */}
+      {images.length > 1 && (
+        <button
+          onClick={nextImage}
+          style={{
+            position: 'absolute',
+            right: '1rem',
+            background: 'rgba(255, 255, 255, 0.1)',
+            border: 'none',
+            color: 'white',
+            fontSize: '1.5rem',
+            padding: '0.5rem 0.75rem',
+            borderRadius: '50%',
+            cursor: 'pointer'
+          }}
+        >
+          ›
+        </button>
+      )}
+
+      {/* Image counter */}
+      {images.length > 1 && (
+        <div style={{
+          position: 'absolute',
+          bottom: '1rem',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          color: 'white',
+          background: 'rgba(0, 0, 0, 0.5)',
+          padding: '0.5rem 1rem',
+          borderRadius: '1rem',
+          fontSize: '0.9rem'
+        }}>
+          {currentIndex + 1} / {images.length}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Simple image zoom on hover via magnifier box
 function ZoomImage({ src, alt }) {
   const [zoom, setZoom] = useState({ x: 0, y: 0, show: false });
@@ -44,6 +303,11 @@ const ProductDetailPage = () => {
   const cart = cartCtx?.cart || { items: [] };
   const dispatch = cartCtx?.dispatch || (() => {});
   const { location: userLoc } = useContext(LocationContext) || {};
+  
+  // Image gallery state
+  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+  const [isImageModalOpen, setIsImageModalOpen] = useState(false);
+  
   // Support both navigation with state and direct link
   // Always use the ID from the URL if no state is passed
   let selectedIds = [id];
@@ -227,27 +491,28 @@ const ProductDetailPage = () => {
             alert(e.response?.data?.message || 'Order failed');
           } finally { setPlacing(false); }
         };
-        // Review logic can be similarly refactored per part if needed
         const totalPrice = part.price * qty;
+        
+        const handleImageClick = (imageIndex) => {
+          setSelectedImageIndex(imageIndex);
+          setIsImageModalOpen(true);
+        };
+        
         return (
-          <div key={part._id} style={{marginBottom:'1.2rem', border:'1px solid #e5e7eb', borderRadius:10, padding:'0.7rem', background:'#fff', maxWidth:400}}>
-            <h2 style={{fontSize:'1.05rem', marginBottom:4}}>{part.name || part.model}</h2>
-            <div style={{fontSize:'.9rem', marginBottom:4}}>{part.company} • {part.model} • {part.vehicleYear}</div>
-            <div style={{margin:'6px 0'}}>
-              {/* Show all images if available, else fallback */}
-              {Array.isArray(part.images) && part.images.length > 0 ? (
-                <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
-                  {part.images.map((img, i) => (
-                    <img key={i} src={ensureAbsolute(img)} alt={part.name || part.model} style={{maxWidth:120, borderRadius:6}} />
-                  ))}
-                </div>
-              ) : (
-                <div style={{color:'#94a3b8'}}>No Image</div>
-              )}
-            </div>
-            <div style={{fontWeight:600, color:'#1d4ed8', fontSize:'.85rem'}}>Distance: {distanceKm && distanceKm[idx] != null ? `${distanceKm[idx]} km` : 'N/A'}</div>
-            <div style={{margin:'6px 0', fontSize:'.85rem'}}>{part.description}</div>
-            <div style={{fontSize:'.7rem', color:'#475569'}}>Price (each): <strong>{formatINR(part.price)}</strong></div>
+          <div key={part._id} style={{marginBottom:'1.2rem', border:'1px solid #e5e7eb', borderRadius:10, padding:'0.7rem', background:'#fff'}}>
+            <h2 style={{fontSize:'1.2rem', marginBottom:'0.5rem', color:'#1e293b'}}>{part.name || part.model}</h2>
+            <div style={{fontSize:'.9rem', marginBottom:'1rem', color:'#64748b'}}>{part.company} • {part.model} • {part.vehicleYear}</div>
+            
+            {/* Enhanced Image Gallery */}
+            <ImageGallery 
+              images={part.images} 
+              productName={part.name || part.model}
+              onImageClick={handleImageClick}
+            />
+            
+            <div style={{fontWeight:600, color:'#1d4ed8', fontSize:'.85rem', marginBottom:'0.5rem'}}>Distance: {distanceKm && distanceKm[idx] != null ? `${distanceKm[idx]} km` : 'N/A'}</div>
+            <div style={{margin:'6px 0', fontSize:'.9rem', lineHeight:1.5}}>{part.description}</div>
+            <div style={{fontSize:'.85rem', color:'#475569', marginBottom:'1rem'}}>Price (each): <strong style={{color:'#059669', fontSize:'1.1em'}}>{formatINR(part.price)}</strong></div>
             {typeof part.countInStock === 'number' && <div style={{fontSize:'.6rem', color: part.countInStock>0?'#15803d':'#b91c1c'}}>Stock: {part.countInStock}</div>}
             <div style={{display:'flex', alignItems:'center', gap:6}}>
               <span style={{fontSize:'.65rem'}}>Qty:</span>
@@ -266,6 +531,15 @@ const ProductDetailPage = () => {
           </div>
         );
       })}
+      
+      {/* Image Modal for full-screen viewing */}
+      <ImageModal
+        images={parts.length > 0 ? parts[0].images : []}
+        isOpen={isImageModalOpen}
+        selectedIndex={selectedImageIndex}
+        onClose={() => setIsImageModalOpen(false)}
+        productName={parts.length > 0 ? (parts[0].name || parts[0].model) : ''}
+      />
     </div>
   );
 };

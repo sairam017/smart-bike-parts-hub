@@ -10,6 +10,7 @@ import { Autocomplete, useLoadScript } from '@react-google-maps/api';
 const VendorDashboard = () => {
   const [tab, setTab] = useState('shop');
   const [metaTab, setMetaTab] = useState('company');
+  
   const [companyMetaList, setCompanyMetaList] = useState([]);
   const [modelMetaList, setModelMetaList] = useState([]);
   const [companyMetaForm, setCompanyMetaForm] = useState({ company:'', image:'' });
@@ -30,6 +31,7 @@ const VendorDashboard = () => {
   const [companyOptions, setCompanyOptions] = useState([]); // meta companies
   const [modelOptions, setModelOptions] = useState([]); // meta models for selected company
   const [creating, setCreating] = useState(false);
+  const [lastSubmissionTime, setLastSubmissionTime] = useState(0);
   const [msg, setMsg] = useState(null);
   const { logout, user } = useAuth();
   const navigate = useNavigate();
@@ -251,63 +253,127 @@ const VendorDashboard = () => {
 
   const createPart = async (e) => {
     e.preventDefault();
-    setCreating(true); setMsg(null);
+    
+    const now = Date.now();
+    
+    // Guard against double submission (React StrictMode, rapid clicks, etc.)
+    if (creating || (now - lastSubmissionTime) < 1000) {
+      console.log('Prevented duplicate submission');
+      return;
+    }
+    
+    setCreating(true);
+    setLastSubmissionTime(now);
+    setMsg(null);
+    
     try {
-      if(!shop?.location?.coordinates || (shop.location.coordinates[0] === 0 && shop.location.coordinates[1] === 0)){
+      // Check shop location
+      if (!shop?.location?.coordinates || (shop.location.coordinates[0] === 0 && shop.location.coordinates[1] === 0)) {
         setMsg('Please update your shop coordinates before adding parts.');
-      } else {
-        // Basic validation
-        const modelsClean0 = (Array.isArray(part.models) ? part.models : []).map(s => String(s || '').trim()).filter(Boolean);
-        const singleModel = (modelsClean0[0] || part.model || '').trim();
-        if (!modelsClean0.length && !singleModel) {
-          setMsg('Please add at least one model');
-          setCreating(false);
+        return;
+      }
+
+      // Handle model validation
+      let finalModel = null;
+      let finalModels = [];
+      
+      if (editingPartId) {
+        // For editing, use single model only
+        finalModel = (part.model || '').trim();
+        if (!finalModel) {
+          setMsg('Please add a model');
           return;
         }
-        // Optional image upload first
-        let imageUrl = null;
-        if (part.image) {
-          const formData = new FormData();
-          formData.append('image', part.image);
-          const uploadRes = await api.post('/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
-          imageUrl = uploadRes.data?.url || null;
+      } else {
+        // For creating, handle multiple models
+        const modelsClean = (Array.isArray(part.models) ? part.models : [])
+          .map(s => String(s || '').trim())
+          .filter(Boolean);
+        const singleModel = (modelsClean[0] || part.model || '').trim();
+        
+        if (!modelsClean.length && !singleModel) {
+          setMsg('Please add at least one model');
+          return;
         }
-        const modelsClean = modelsClean0;
-        // Auto-add company to metadata if new
-        const companyTrim = (part.company || '').trim();
-        if (companyTrim && !companyOptions.includes(companyTrim)) {
-          try { await metaService.upsertCompany({ company: companyTrim });
-            setCompanyOptions(prev => [...prev, companyTrim]);
-          } catch(_) { /* ignore */ }
-        }
-        const payload = {
-          name: part.name,
-          // If multiple models provided, send as array; server will expand to many documents
-          ...(modelsClean.length > 1 ? { models: modelsClean } : { model: (modelsClean[0] || part.model || '').trim() }),
-          company: part.company,
-          brand: part.brand,
-          type: part.category || undefined,
-          countInStock: part.countInStock ? Number(part.countInStock) : undefined,
-          vehicleYear: Number(part.vehicleYear) || undefined,
-          price: Number(part.price),
-          description: part.description,
-          imageUrl: part.imageUrl || undefined,
-          images: imageUrl ? [imageUrl] : []
-        };
-        if (editingPartId) {
-          await bikePartsService.updatePart(editingPartId, payload);
-          setMsg('Part updated');
-        } else {
-          const { data } = await bikePartsService.createPart(payload);
-          const createdCount = Array.isArray(data?.created) ? data.created.length : (data?._id ? 1 : (data?.count || 1));
-          setMsg(`Part created${createdCount > 1 ? ` (${createdCount} models)` : ''}`);
-        }
-        setPart({ name:'', model:'', models:[''], company:'', vehicleYear:'', price:'', description:'', brand:'', category:'', countInStock:'', image:null, imageUrl:'' });
-        setEditingPartId(null);
-        refreshParts();
+        
+        finalModels = modelsClean.length ? modelsClean : [singleModel];
       }
-    } catch (e) {
-      setMsg(e.response?.data?.message || e.message || 'Failed to create part');
+
+      // Handle image upload
+      let imageUrl = null;
+      if (part.image) {
+        const formData = new FormData();
+        formData.append('image', part.image);
+        const uploadRes = await api.post('/upload', formData, { 
+          headers: { 'Content-Type': 'multipart/form-data' } 
+        });
+        imageUrl = uploadRes.data?.url || null;
+      }
+
+      // Auto-add company to metadata if new
+      const companyTrim = (part.company || '').trim();
+      if (companyTrim && !companyOptions.includes(companyTrim)) {
+        try {
+          await metaService.upsertCompany({ company: companyTrim });
+          setCompanyOptions(prev => [...prev, companyTrim]);
+        } catch (error) {
+          // Ignore meta service errors
+        }
+      }
+
+      // Build payload
+      const payload = {
+        name: part.name,
+        company: part.company,
+        brand: part.brand,
+        type: part.category || undefined,
+        countInStock: part.countInStock ? Number(part.countInStock) : undefined,
+        vehicleYear: Number(part.vehicleYear) || undefined,
+        price: Number(part.price),
+        description: part.description,
+        imageUrl: part.imageUrl || undefined,
+        images: imageUrl ? [imageUrl] : []
+      };
+
+      // Add model(s) to payload
+      if (editingPartId) {
+        payload.model = finalModel;
+      } else {
+        if (finalModels.length > 1) {
+          payload.models = finalModels;
+        } else {
+          payload.model = finalModels[0];
+        }
+      }
+
+      // Submit to API
+      if (editingPartId) {
+        await bikePartsService.updatePart(editingPartId, payload);
+        setMsg('Part updated successfully');
+      } else {
+        const { data } = await bikePartsService.createPart(payload);
+        const createdCount = Array.isArray(data?.created) ? data.created.length : 1;
+        setMsg(`Part created successfully${createdCount > 1 ? ` (${createdCount} models)` : ''}`);
+      }
+
+      // Reset form
+      setPart({ 
+        name: '', model: '', models: [''], company: '', vehicleYear: '', 
+        price: '', description: '', brand: '', category: '', countInStock: '', 
+        image: null, imageUrl: '' 
+      });
+      setEditingPartId(null);
+      refreshParts();
+
+    } catch (error) {
+      console.error('Error in createPart:', error);
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to save part';
+      
+      if (errorMessage.includes('duplicate') || errorMessage.includes('11000') || error.response?.status === 409) {
+        setMsg('This part already exists. Please modify the details or check existing inventory.');
+      } else {
+        setMsg(errorMessage);
+      }
     } finally {
       setCreating(false);
     }
