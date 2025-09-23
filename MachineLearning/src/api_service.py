@@ -21,6 +21,9 @@ from .models.schemas import (
 from .data_pipeline.pipeline_service import DataPipelineService
 from .config.settings import API_HOST, API_PORT
 
+# Import ML recommendation system
+from .recommendations.recommendation_model import get_recommendation_model
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -44,6 +47,21 @@ app.add_middleware(
 # Initialize services
 route_planner = RoutePlanner()
 data_pipeline = DataPipelineService()
+
+# Initialize ML recommendation model (lazy loading)
+_recommendation_model = None
+
+def get_ml_model():
+    """Get or initialize the ML recommendation model"""
+    global _recommendation_model
+    if _recommendation_model is None:
+        _recommendation_model = get_recommendation_model()
+        # Try to load existing model
+        if not _recommendation_model.is_trained:
+            logger.info("Loading ML recommendation model...")
+            if not _recommendation_model.load_model():
+                logger.warning("No trained model found. Model training required.")
+    return _recommendation_model
 
 # Existing route planner models (keeping for compatibility)
 class ShopIn(BaseModel):
@@ -182,20 +200,28 @@ async def sync_single_product(product_data: Dict[str, Any]):
 
 @app.post('/model/train', response_model=ModelTrainingResponse)
 async def train_recommendation_model(request: ModelTrainingRequest, background_tasks: BackgroundTasks):
-    """Trigger model training (manual trigger from frontend)"""
+    """Trigger model training"""
     try:
         logger.info("Model training requested")
         
-        # For now, return a placeholder response
-        # TODO: Implement actual model training
+        # Get model instance
+        model = get_ml_model()
+        
+        # Train the model
+        dataset_path = "data/bike_parts_dataset.csv"
+        training_info = model.train_model(dataset_path, force_retrain=request.force_retrain)
+        
         return ModelTrainingResponse(
             success=True,
-            message="Model training initiated (placeholder)",
-            model_version="v1.0.0-placeholder",
-            training_time_ms=0.0,
-            products_count=0,
-            similarity_matrix_size=(0, 0),
-            performance_metrics={}
+            message="Model training completed successfully",
+            model_version=training_info.get("version", "1.0.0"),
+            training_time_ms=training_info.get("training_time_seconds", 0) * 1000,
+            products_count=training_info.get("dataset_size", 0),
+            similarity_matrix_size=tuple(training_info.get("similarity_matrix_shape", [0, 0])),
+            performance_metrics={
+                "quality_score": training_info.get("quality_score", 0),
+                "mean_similarity": training_info.get("model_stats", {}).get("mean_similarity", 0)
+            }
         )
     except Exception as e:
         logger.error(f"Model training error: {e}")
@@ -205,39 +231,95 @@ async def train_recommendation_model(request: ModelTrainingRequest, background_t
 async def get_model_status():
     """Get current model status and information"""
     try:
-        # TODO: Implement actual model status checking
-        return {
-            "model_version": "v1.0.0-placeholder",
-            "last_trained": None,
-            "status": "not_trained",
-            "products_count": 0,
-            "model_file_exists": False
-        }
+        model = get_ml_model()
+        model_info = model.get_model_info()
+        
+        if model_info["status"] == "ready":
+            return {
+                "model_version": model_info["version"],
+                "last_trained": model_info["metadata"].get("training_date"),
+                "status": "trained",
+                "products_count": model_info["dataset_size"],
+                "model_file_exists": True,
+                "quality_score": model_info["metadata"].get("quality_score", 0)
+            }
+        else:
+            return {
+                "model_version": "none",
+                "last_trained": None,
+                "status": "not_trained",
+                "products_count": 0,
+                "model_file_exists": False
+            }
     except Exception as e:
         logger.error(f"Model status error: {e}")
         raise HTTPException(status_code=500, detail=f"Model status error: {str(e)}")
 
 # ============================================================================
-# RECOMMENDATION ENDPOINTS (Placeholder - to be implemented)
+# RECOMMENDATION ENDPOINTS
 # ============================================================================
 
 @app.post('/recommendations/similar', response_model=RecommendationResponse)
 async def get_similar_products(request: RecommendationRequest):
     """Get product recommendations based on similarity"""
     try:
+        start_time = time.time()
         logger.info(f"Recommendations requested for product: {request.product_id}")
         
-        # TODO: Implement actual recommendation logic
+        # Get model instance
+        model = get_ml_model()
+        
+        if not model.is_trained:
+            raise HTTPException(status_code=503, detail="Recommendation model not trained. Please train the model first.")
+        
+        # Get recommendations
+        recommendations = model.get_recommendations(
+            product_id=request.product_id,
+            num_recommendations=request.num_recommendations,
+            include_complementary=True,
+            exclude_out_of_stock=(not request.include_out_of_stock)
+        )
+        
+        processing_time = (time.time() - start_time) * 1000  # Convert to ms
+        
         return RecommendationResponse(
             product_id=request.product_id,
-            recommendations=[],
-            total_found=0,
-            processing_time_ms=0.0,
-            model_version="v1.0.0-placeholder"
+            recommendations=recommendations,
+            total_found=len(recommendations),
+            processing_time_ms=processing_time,
+            model_version=model.model_version
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Recommendation error: {e}")
         raise HTTPException(status_code=500, detail=f"Recommendation error: {str(e)}")
+
+@app.get('/recommendations/search')
+async def search_products(q: str, limit: int = 10):
+    """Search products by query string"""
+    try:
+        logger.info(f"Product search requested: '{q}'")
+        
+        # Get model instance
+        model = get_ml_model()
+        
+        if not model.is_trained:
+            raise HTTPException(status_code=503, detail="Recommendation model not trained. Please train the model first.")
+        
+        # Search products
+        results = model.search_products(query=q, limit=limit)
+        
+        return {
+            "query": q,
+            "results": results,
+            "total_found": len(results)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Search error: {e}")
+        raise HTTPException(status_code=500, detail=f"Search error: {str(e)}")
 
 # ============================================================================
 # ENHANCED HEALTH CHECK
@@ -255,12 +337,18 @@ async def detailed_health_check():
         csv_info = pipeline_status.get("csv_info", {})
         csv_count = csv_info.get("total_products", 0)
         
+        # Check ML model status
+        model = get_ml_model()
+        model_info = model.get_model_info()
+        model_health = "trained" if model_info["status"] == "ready" else "not_trained"
+        last_training = model_info.get("metadata", {}).get("training_date") if model_info["status"] == "ready" else None
+        
         return HealthCheckResponse(
             status="healthy",
             data_pipeline_status=pipeline_health,
-            model_status="not_trained",  # TODO: Check actual model status
+            model_status=model_health,
             csv_records_count=csv_count,
-            last_training_time=None  # TODO: Get actual last training time
+            last_training_time=last_training
         )
     except Exception as e:
         logger.error(f"Health check error: {e}")

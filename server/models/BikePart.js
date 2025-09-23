@@ -25,4 +25,18 @@ const BikePartSchema = new mongoose.Schema({
     shop: { type: mongoose.Schema.Types.ObjectId, ref: 'Shop', required: true }
 }, { timestamps: true });
 
+// Add compound index to prevent exact duplicates
+BikePartSchema.index({ 
+    name: 1, 
+    model: 1, 
+    company: 1, 
+    vendor: 1, 
+    shop: 1, 
+    price: 1
+}, { 
+    unique: true, // Prevent exact duplicates
+    sparse: true,
+    name: 'prevent_duplicate_parts'
+});
+
 module.exports = mongoose.model('BikePart', BikePartSchema);

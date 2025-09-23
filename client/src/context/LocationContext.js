@@ -10,6 +10,17 @@ export const LocationProvider = ({ children }) => {
 
     const applyPosition = (position) => {
         if (manualOverride.current) return; // don't overwrite manual
+        
+        // Log accuracy for debugging distance issues
+        if (process.env.NODE_ENV === 'development') {
+            console.log('Location update:', {
+                latitude: position.coords.latitude?.toFixed(6),
+                longitude: position.coords.longitude?.toFixed(6),
+                accuracy: position.coords.accuracy,
+                accuracyWarning: position.coords.accuracy > 100 ? 'Low accuracy location' : 'Good accuracy'
+            });
+        }
+        
         setLocation({
             latitude: position.coords.latitude,
             longitude: position.coords.longitude,

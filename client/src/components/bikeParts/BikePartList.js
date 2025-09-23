@@ -5,6 +5,7 @@ import bikePartsService from '../../services/bikePartsService';
 import LocationContext from '../../context/LocationContext';
 import './bikeParts.css';
 import { formatINR } from '../../utils/currency';
+import { calculateDistanceToShop, formatDistance, debugDistance } from '../../utils/distanceUtils';
 
 const BikePartList = () => {
     const [parts, setParts] = useState([]);
@@ -26,6 +27,10 @@ const BikePartList = () => {
     const location = useLocation();
     const navigate = useNavigate();
     const [searchTerm, setSearchTerm] = useState('');
+    
+    // Image preview state
+    const [hoveredProduct, setHoveredProduct] = useState(null);
+    const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
 
 
     // All hooks must be called at the top level, never conditionally
@@ -53,9 +58,13 @@ const BikePartList = () => {
             setTypes(tRes.data?.types || []);
             setYears(yRes.data?.years || []);
             const data = pRes.data;
-            setParts(Array.isArray(data) ? data : data.products || []);
+            const productsArray = Array.isArray(data) ? data : data.products || [];
+            setParts(productsArray);
         })
-        .catch(err => setError(err.response?.data?.message || 'Failed to load'))
+        .catch(err => {
+            console.error('Loading error:', err);
+            setError(err.response?.data?.message || err.message || 'Failed to load');
+        })
         .finally(()=> setLoading(false));
     }, [location.search]);
 
@@ -66,8 +75,13 @@ const BikePartList = () => {
         }
         setLoading(true);
         bikePartsService.getModelsByCompany(selectedCompany)
-            .then(r => setModels(r.data?.models || []))
-            .catch(err => setError(err.response?.data?.message || 'Failed to load models'))
+            .then(r => {
+                setModels(r.data?.models || []);
+            })
+            .catch(err => {
+                console.error('Failed to load models:', err);
+                setError(err.response?.data?.message || err.message || 'Failed to load models');
+            })
             .finally(()=> setLoading(false));
     }, [selectedCompany]);
 
@@ -83,27 +97,21 @@ const BikePartList = () => {
         bikePartsService.getParts(filters)
             .then(response => {
                 const data = response.data;
-                setParts(Array.isArray(data) ? data : data.products || []);
+                const productsArray = Array.isArray(data) ? data : data.products || [];
+                setParts(productsArray);
             })
-            .catch(err => setError(err.response?.data?.message || 'Failed to load parts'))
+            .catch(err => {
+                console.error('Failed to load filtered parts:', err);
+                setError(err.response?.data?.message || err.message || 'Failed to load parts');
+            })
             .finally(()=> setLoading(false));
     }, [selectedCompany, selectedModel, selectedType, selectedYear, location.search]);
 
-    const haversineKm = (lat1, lon1, lat2, lon2) => {
-        const toRad = (v) => v * Math.PI / 180;
-        const R = 6371;
-        const dLat = toRad(lat2-lat1);
-        const dLon = toRad(lon2-lon1);
-        const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-        return R * c;
-    };
-
     const computeDistanceFor = useCallback((part) => {
         if (!userLoc || !part?.shop?.location?.coordinates) return null;
-        const [lng, lat] = part.shop.location.coordinates;
-        const km = haversineKm(userLoc.latitude, userLoc.longitude, lat, lng);
-        return km;
+        const distance = calculateDistanceToShop(userLoc, part.shop.location.coordinates);
+        debugDistance('BikePartList', userLoc, part.shop.location.coordinates, distance);
+        return distance;
     }, [userLoc]);
 
     useEffect(() => {
@@ -125,15 +133,6 @@ const BikePartList = () => {
     if (error) {
         return <div className="parts-wrap" style={{ color: 'red' }}>{error}</div>;
     }
-
-    // Removed Add to Cart & related suggestion logic per request
-
-    // Removed openMaps & map modal logic (unused)
-
-    // Quick order removed in cleanup; ordering handled in product detail page
-
-    if (loading) return <div className="parts-wrap">Loading...</div>;
-    if (error) return <div className="parts-wrap" style={{ color: 'red' }}>{error}</div>;
 
     return (
         <div className="parts-wrap" style={{display:'flex', flexDirection:'column', gap:'0.75rem'}}>
@@ -214,9 +213,57 @@ const BikePartList = () => {
                                     <input type="checkbox" checked={checked} onChange={e => {
                                         setSelectedIds(ids => e.target.checked ? [...ids, part._id] : ids.filter(id => id !== part._id));
                                     }} />
-                                    <Link to={`/product/${part._id}`} style={{display:'block', flex:1}}>
+                                    <Link to={`/product/${part._id}`} style={{display:'block', flex:1, position:'relative'}}>
                                         {part.images?.length ? (
-                                            <img alt={part.model || part.name || 'part'} src={ensureAbsolute(part.images[0])} style={{width:'100%', height:110, objectFit:'contain', background:'#f1f5f9', borderRadius:8}} />
+                                            <>
+                                                <img 
+                                                    alt={part.model || part.name || 'part'} 
+                                                    src={ensureAbsolute(part.images[0])} 
+                                                    style={{
+                                                        width:'100%', 
+                                                        height:110, 
+                                                        objectFit:'contain', 
+                                                        background:'#f1f5f9', 
+                                                        borderRadius:8,
+                                                        transition: 'transform 0.2s',
+                                                        cursor: 'pointer'
+                                                    }} 
+                                                    onMouseEnter={(e) => {
+                                                        e.target.style.transform = 'scale(1.02)';
+                                                        if (part.images.length > 1) {
+                                                            setHoveredProduct(part);
+                                                            setMousePosition({ x: e.clientX, y: e.clientY });
+                                                        }
+                                                    }}
+                                                    onMouseLeave={(e) => {
+                                                        e.target.style.transform = 'scale(1)';
+                                                        setHoveredProduct(null);
+                                                    }}
+                                                    onMouseMove={(e) => {
+                                                        if (part.images.length > 1) {
+                                                            setMousePosition({ x: e.clientX, y: e.clientY });
+                                                        }
+                                                    }}
+                                                />
+                                                {/* Multiple images indicator */}
+                                                {part.images.length > 1 && (
+                                                    <div style={{
+                                                        position: 'absolute',
+                                                        top: '4px',
+                                                        right: '4px',
+                                                        background: 'rgba(0, 0, 0, 0.7)',
+                                                        color: 'white',
+                                                        fontSize: '0.7rem',
+                                                        padding: '2px 6px',
+                                                        borderRadius: '10px',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '2px'
+                                                    }}>
+                                                        📷 {part.images.length}
+                                                    </div>
+                                                )}
+                                            </>
                                         ) : (
                                             <div style={{width:'100%', height:110, background:'#f1f5f9', borderRadius:8, display:'flex', alignItems:'center', justifyContent:'center', color:'#94a3b8', fontSize:12}}>No Image</div>
                                         )}
@@ -226,7 +273,7 @@ const BikePartList = () => {
                                 <div className="part-meta" style={{fontSize:'.6rem'}}>{part.company ? part.company+' • ' : ''}{part.model || (part.type || 'Part')}{part.vehicleYear ? ' • '+part.vehicleYear : ''} <span className="part-price" style={{fontSize:'.5rem'}}>{formatINR(part.price)}</span></div>
                                 {distanceKm != null && (
                                     <div style={{marginTop:4, fontSize:'.5rem', color:'#1e293b', display:'flex', gap:4, alignItems:'center'}}>
-                                        <span style={{background: highlight? '#1d4ed8':'#e2e8f0', color: highlight? '#fff':'#0f172a', padding:'2px 6px', borderRadius:20}}>{distanceKm.toFixed(1)} km</span>
+                                        <span style={{background: highlight? '#1d4ed8':'#e2e8f0', color: highlight? '#fff':'#0f172a', padding:'2px 6px', borderRadius:20}}>{formatDistance(distanceKm)}</span>
                                         {highlight && <span style={{color:'#1d4ed8', fontWeight:600}}>Nearest</span>}
                                     </div>
                                 )}
@@ -236,6 +283,60 @@ const BikePartList = () => {
                     })}
                 </div>
             </section>
+            
+            {/* Image Preview Tooltip */}
+            {hoveredProduct && hoveredProduct.images && hoveredProduct.images.length > 1 && (
+                <div style={{
+                    position: 'fixed',
+                    left: mousePosition.x + 15,
+                    top: mousePosition.y - 50,
+                    background: 'white',
+                    border: '2px solid #e2e8f0',
+                    borderRadius: '8px',
+                    padding: '8px',
+                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+                    zIndex: 1000,
+                    pointerEvents: 'none',
+                    maxWidth: 300
+                }}>
+                    <div style={{fontSize: '0.8rem', marginBottom: '6px', color: '#64748b'}}>
+                        {hoveredProduct.images.length} images available
+                    </div>
+                    <div style={{display: 'flex', gap: '4px', overflowX: 'auto'}}>
+                        {hoveredProduct.images.slice(0, 4).map((img, index) => (
+                            <img 
+                                key={index}
+                                src={ensureAbsolute(img)} 
+                                alt={`Preview ${index + 1}`}
+                                style={{
+                                    width: 60,
+                                    height: 45,
+                                    objectFit: 'cover',
+                                    borderRadius: '4px',
+                                    border: '1px solid #e2e8f0'
+                                }}
+                            />
+                        ))}
+                        {hoveredProduct.images.length > 4 && (
+                            <div style={{
+                                width: 60,
+                                height: 45,
+                                background: '#f1f5f9',
+                                borderRadius: '4px',
+                                border: '1px solid #e2e8f0',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: '0.7rem',
+                                color: '#64748b'
+                            }}>
+                                +{hoveredProduct.images.length - 4}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+            
             {/* Map modal removed */}
     {/* Toasts removed with action buttons */}
         </div>

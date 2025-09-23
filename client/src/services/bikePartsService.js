@@ -1,6 +1,6 @@
 import api from './api';
 
-const getParts = (filters) => api.get('/products', { params: filters });
+const getParts = (filters) => api.get('/products', { params: { ...filters, pageSize: 100 } });
 const getCompanies = () => api.get('/products/groups/companies');
 const getModelsByCompany = (company) => api.get('/products/groups/models', { params: { company } });
 const getBrands = () => api.get('/products/groups/brands');

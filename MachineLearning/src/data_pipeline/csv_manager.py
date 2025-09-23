@@ -89,10 +89,19 @@ class CSVManager:
             # Load existing data
             df = self.load_csv()
             
-            # Check if product already exists
-            product_id = product_data.get('product_id')
-            if product_id in df['product_id'].values:
+            # Check if product already exists (more robust check)
+            product_id = str(product_data.get('product_id', '')).strip()
+            if not product_id:
+                return False, "Product ID is required"
+            
+            # Convert existing product_ids to strings for comparison
+            existing_ids = df['product_id'].astype(str).str.strip()
+            if product_id in existing_ids.values:
+                logger.warning(f"Duplicate product detected: {product_id}. Skipping addition.")
                 return False, f"Product {product_id} already exists. Use update_product instead."
+            
+            # Log the addition attempt
+            logger.info(f"Adding new product to CSV: {product_id} - {product_data.get('name', 'Unknown')}")
             
             # Prepare CSV row
             csv_row = prepare_csv_row(product_data)
@@ -104,8 +113,10 @@ class CSVManager:
             # Save CSV
             success = self.save_csv(df)
             if success:
+                logger.info(f"Successfully added product {product_id} to CSV")
                 return True, f"Product {product_id} added successfully"
             else:
+                logger.error(f"Failed to save CSV after adding product {product_id}")
                 return False, "Failed to save CSV file"
                 
         except Exception as e:
