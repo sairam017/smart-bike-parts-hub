@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Bike Parts - ML Recommendations Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            color: #1d4ed8;
+            margin-bottom: 30px;
+        }
+        .test-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+        }
+        .product-card {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px 0;
+            background: #f9f9f9;
+        }
+        .recommendation-card {
+            border: 1px solid #1d4ed8;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px 0;
+            background: #f0f4ff;
+        }
+        .success {
+            color: #059669;
+            font-weight: bold;
+        }
+        .error {
+            color: #dc2626;
+            font-weight: bold;
+        }
+        .loading {
+            color: #7c3aed;
+            font-style: italic;
+        }
+        button {
+            background: #1d4ed8;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #1e40af;
+        }
+        .ml-badge {
+            background: #7c3aed;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            margin-left: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 Smart Bike Parts ML Recommendations Demo</h1>
+            <p>Testing AI-powered product recommendations integration</p>
+        </div>
+
+        <div class="test-section">
+            <h2>🔧 Service Status</h2>
+            <div id="serviceStatus">
+                <div>🔄 Checking services...</div>
+            </div>
+        </div>
+
+        <div class="test-section">
+            <h2>🛍️ Sample Product</h2>
+            <div id="sampleProduct">
+                <div class="loading">Loading sample product...</div>
+            </div>
+        </div>
+
+        <div class="test-section">
+            <h2>🤖 ML Recommendations</h2>
+            <div id="recommendations">
+                <div class="loading">Ready to fetch recommendations...</div>
+            </div>
+            <button onclick="testRecommendations()">Get ML Recommendations</button>
+            <button onclick="testDirectML()">Test Direct ML API</button>
+        </div>
+    </div>
+
+    <script>
+        const ML_SERVICE_URL = 'http://localhost:8010';
+        const NODE_SERVICE_URL = 'http://localhost:5000';
+        
+        let sampleProductId = null;
+
+        // Check service status
+        async function checkServices() {
+            const statusDiv = document.getElementById('serviceStatus');
+            let statusHTML = '';
+
+            try {
+                // Check ML Service
+                const mlResponse = await fetch(`${ML_SERVICE_URL}/health`);
+                const mlStatus = await mlResponse.json();
+                statusHTML += `<div class="success">✅ ML Service: ${mlStatus.status} (${ML_SERVICE_URL})</div>`;
+            } catch (error) {
+                statusHTML += `<div class="error">❌ ML Service: Failed to connect (${ML_SERVICE_URL})</div>`;
+            }
+
+            try {
+                // Check Node Service
+                const nodeResponse = await fetch(`${NODE_SERVICE_URL}/`);
+                const nodeStatus = await nodeResponse.json();
+                statusHTML += `<div class="success">✅ Node Service: ${nodeStatus.status} (${NODE_SERVICE_URL})</div>`;
+            } catch (error) {
+                statusHTML += `<div class="error">❌ Node Service: Failed to connect (${NODE_SERVICE_URL})</div>`;
+            }
+
+            try {
+                // Check ML Model Status
+                const modelResponse = await fetch(`${ML_SERVICE_URL}/model/status`);
+                const modelStatus = await modelResponse.json();
+                statusHTML += `<div class="success">✅ ML Model: ${modelStatus.status} (${modelStatus.products_count} products, ${modelStatus.quality_score}% quality)</div>`;
+            } catch (error) {
+                statusHTML += `<div class="error">❌ ML Model: Failed to get status</div>`;
+            }
+
+            statusDiv.innerHTML = statusHTML;
+        }
+
+        // Load sample product
+        async function loadSampleProduct() {
+            const productDiv = document.getElementById('sampleProduct');
+            
+            try {
+                const response = await fetch(`${NODE_SERVICE_URL}/api/products?limit=1`);
+                const data = await response.json();
+                
+                if (data.products && data.products.length > 0) {
+                    const product = data.products[0];
+                    sampleProductId = product._id;
+                    
+                    productDiv.innerHTML = `
+                        <div class="product-card">
+                            <h3>${product.name || product.model}</h3>
+                            <p><strong>Company:</strong> ${product.company}</p>
+                            <p><strong>Model:</strong> ${product.model}</p>
+                            <p><strong>Type:</strong> ${product.type}</p>
+                            <p><strong>Price:</strong> ₹${product.price}</p>
+                            <p><strong>Rating:</strong> ${product.rating || 'No rating'} (${product.numReviews || 0} reviews)</p>
+                            <p><strong>Product ID:</strong> ${product._id}</p>
+                            ${product.description ? `<p><strong>Description:</strong> ${product.description}</p>` : ''}
+                        </div>
+                    `;
+                } else {
+                    productDiv.innerHTML = '<div class="error">No products found in database</div>';
+                }
+            } catch (error) {
+                productDiv.innerHTML = `<div class="error">Failed to load sample product: ${error.message}</div>`;
+            }
+        }
+
+        // Test recommendations through Node.js backend
+        async function testRecommendations() {
+            const recDiv = document.getElementById('recommendations');
+            
+            if (!sampleProductId) {
+                recDiv.innerHTML = '<div class="error">No sample product loaded</div>';
+                return;
+            }
+
+            recDiv.innerHTML = '<div class="loading">🔄 Fetching recommendations through Node.js backend...</div>';
+
+            try {
+                const response = await fetch(`${NODE_SERVICE_URL}/api/recommendations/recommendations`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        productId: sampleProductId
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (data.items && data.items.length > 0) {
+                    let html = `<div class="success">✅ Found ${data.items.length} recommendations (Source: ${data.source})</div>`;
+                    
+                    data.items.forEach((item, index) => {
+                        html += `
+                            <div class="recommendation-card">
+                                <h4>${item.name || item.model} 
+                                    ${item.similarity_score ? `<span class="ml-badge">ML ${Math.round(item.similarity_score * 100)}%</span>` : ''}
+                                </h4>
+                                <p><strong>Company:</strong> ${item.company} | <strong>Type:</strong> ${item.type}</p>
+                                <p><strong>Price:</strong> ₹${item.price} | <strong>Rating:</strong> ${item.rating || 'No rating'}</p>
+                                ${item.recommendation_reason ? `<p><strong>Reason:</strong> ${item.recommendation_reason}</p>` : ''}
+                                ${item.distance ? `<p><strong>Distance:</strong> ${item.distance.toFixed(2)} km</p>` : ''}
+                            </div>
+                        `;
+                    });
+                    
+                    recDiv.innerHTML = html;
+                } else {
+                    recDiv.innerHTML = `<div class="error">No recommendations found. Response: ${JSON.stringify(data)}</div>`;
+                }
+            } catch (error) {
+                recDiv.innerHTML = `<div class="error">Failed to fetch recommendations: ${error.message}</div>`;
+            }
+        }
+
+        // Test ML service directly
+        async function testDirectML() {
+            const recDiv = document.getElementById('recommendations');
+            
+            if (!sampleProductId) {
+                recDiv.innerHTML = '<div class="error">No sample product loaded</div>';
+                return;
+            }
+
+            recDiv.innerHTML = '<div class="loading">🔄 Testing ML service directly...</div>';
+
+            try {
+                const response = await fetch(`${ML_SERVICE_URL}/recommendations/similar`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        product_id: sampleProductId,
+                        num_recommendations: 5,
+                        include_out_of_stock: false
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (data.recommendations && data.recommendations.length > 0) {
+                    let html = `<div class="success">✅ ML Service Direct: Found ${data.recommendations.length} recommendations (${data.processing_time_ms.toFixed(2)}ms)</div>`;
+                    
+                    data.recommendations.forEach((item, index) => {
+                        html += `
+                            <div class="recommendation-card">
+                                <h4>${item.name} <span class="ml-badge">ML ${Math.round(item.similarity_score * 100)}%</span></h4>
+                                <p><strong>Company:</strong> ${item.company} | <strong>Type:</strong> ${item.type}</p>
+                                <p><strong>Price:</strong> ₹${item.price} | <strong>Rating:</strong> ${item.rating}</p>
+                                <p><strong>Reason:</strong> ${item.reason}</p>
+                                <p><strong>Product ID:</strong> ${item.product_id}</p>
+                            </div>
+                        `;
+                    });
+                    
+                    recDiv.innerHTML = html;
+                } else {
+                    recDiv.innerHTML = `<div class="error">No recommendations found from ML service. Response: ${JSON.stringify(data)}</div>`;
+                }
+            } catch (error) {
+                recDiv.innerHTML = `<div class="error">Failed to test ML service: ${error.message}</div>`;
+            }
+        }
+
+        // Initialize when page loads
+        window.onload = async function() {
+            await checkServices();
+            await loadSampleProduct();
+        };
+    </script>
+</body>
+</html>

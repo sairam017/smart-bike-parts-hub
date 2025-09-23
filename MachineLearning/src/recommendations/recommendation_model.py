@@ -12,9 +12,9 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 
-from recommendations.data_preprocessor import BikePartsDataPreprocessor
-from recommendations.feature_extractor import BikePartsFeatureExtractor
-from recommendations.similarity_engine import BikePartsSimilarityEngine
+from .data_preprocessor import BikePartsDataPreprocessor
+from .feature_extractor import BikePartsFeatureExtractor
+from .similarity_engine import BikePartsSimilarityEngine
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

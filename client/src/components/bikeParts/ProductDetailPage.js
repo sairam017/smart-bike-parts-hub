@@ -5,6 +5,7 @@ import api from '../../services/api';
 import useAuth from '../../hooks/useAuth';
 import useCart from '../../hooks/useCart';
 import LocationContext from '../../context/LocationContext';
+import Recommendations from '../recommendations/Recommendations';
 import { formatINR } from '../../utils/currency';
 import { calculateDistanceToShop, formatDistance, debugDistance, testDistanceCalculation } from '../../utils/distanceUtils';
 
@@ -826,6 +827,12 @@ const ProductDetailPage = () => {
           </div>
         )}
       </div>
+
+      {/* AI-Powered Recommendations */}
+      <Recommendations 
+        productId={product._id} 
+        currentProduct={product} 
+      />
 
       {/* Image Modal for full-screen viewing */}
       <ImageModal
