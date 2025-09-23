@@ -90,12 +90,43 @@ export const formatDistance = (distanceKm, decimals = 1) => {
 };
 
 /**
- * Debug logging for distance calculations
- * @param {string} component - Component name
- * @param {Object} userLoc - User location
- * @param {Array} shopCoords - Shop coordinates
- * @param {number} result - Calculated distance
+ * Test distance calculation with known coordinates
+ * This can be called in development to verify calculations work correctly
  */
+export const testDistanceCalculation = () => {
+  if (process.env.NODE_ENV !== 'development') return;
+  
+  // Test with known coordinates:
+  // Mumbai (19.0760, 72.8777) to Delhi (28.7041, 77.1025)
+  // Expected distance: ~1153 km
+  const mumbaiLat = 19.0760, mumbaiLng = 72.8777;
+  const delhiLat = 28.7041, delhiLng = 77.1025;
+  
+  const distance = calculateDistance(mumbaiLat, mumbaiLng, delhiLat, delhiLng);
+  const expectedDistance = 1153;
+  const error = Math.abs(distance - expectedDistance);
+  
+  console.log('Distance calculation test:', {
+    from: 'Mumbai (19.0760, 72.8777)',
+    to: 'Delhi (28.7041, 77.1025)',
+    calculated: distance?.toFixed(2) + ' km',
+    expected: expectedDistance + ' km',
+    error: error?.toFixed(2) + ' km',
+    valid: error < 50 // Allow 50km margin for rounding
+  });
+  
+  // Test with GeoJSON format coordinates
+  const userLoc = { latitude: mumbaiLat, longitude: mumbaiLng };
+  const shopCoords = [delhiLng, delhiLat]; // GeoJSON [lng, lat]
+  const geoDistance = calculateDistanceToShop(userLoc, shopCoords);
+  
+  console.log('GeoJSON distance test:', {
+    userLocation: userLoc,
+    shopCoordinates: shopCoords,
+    distance: geoDistance?.toFixed(2) + ' km',
+    matchesDirectCalculation: Math.abs(distance - geoDistance) < 1
+  });
+};
 export const debugDistance = (component, userLoc, shopCoords, result) => {
   if (process.env.NODE_ENV === 'development') {
     // Also calculate with swapped coordinates to detect potential issues

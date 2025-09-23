@@ -6,7 +6,7 @@ import useAuth from '../../hooks/useAuth';
 import useCart from '../../hooks/useCart';
 import LocationContext from '../../context/LocationContext';
 import { formatINR } from '../../utils/currency';
-import { calculateDistanceToShop, formatDistance, debugDistance } from '../../utils/distanceUtils';
+import { calculateDistanceToShop, formatDistance, debugDistance, testDistanceCalculation } from '../../utils/distanceUtils';
 
 // Utility function to ensure absolute URLs
 const ensureAbsolute = (src) => {
@@ -302,6 +302,9 @@ const ProductDetailPage = () => {
 
   // Fetch single product by ID
   useEffect(() => {
+    // Test distance calculation on component mount (development only)
+    testDistanceCalculation();
+    
     if (!id) {
       setError('No product ID provided');
       setLoading(false);
