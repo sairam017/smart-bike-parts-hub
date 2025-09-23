@@ -195,19 +195,21 @@ router.put('/:id', auth, async (req, res) => {
     return res.status(403).json({ message: 'Forbidden' });
   }
   
-  // Handle image updates - merge new images with existing ones
+  // Handle image updates - use the provided images array directly
   if (req.body.images || req.body.imageUrl) {
-    const currentImages = product.images || [];
-    const newImages = Array.isArray(req.body.images) ? req.body.images : [];
-    
-    // If imageUrl is provided, add it to the images array
-    if (req.body.imageUrl) {
-      newImages.unshift(req.body.imageUrl);
+    // If frontend sends images array, use it directly (frontend handles merging)
+    if (Array.isArray(req.body.images)) {
+      // Frontend already merged existing + new images
+      // Just add imageUrl if provided and not already in array
+      if (req.body.imageUrl && !req.body.images.includes(req.body.imageUrl)) {
+        req.body.images = [req.body.imageUrl, ...req.body.images];
+      }
+    } else {
+      // Fallback: if no images array but imageUrl provided
+      const currentImages = product.images || [];
+      const newImages = req.body.imageUrl ? [req.body.imageUrl] : [];
+      req.body.images = [...new Set([...currentImages, ...newImages])];
     }
-    
-    // Combine existing and new images, removing duplicates
-    const combinedImages = [...new Set([...currentImages, ...newImages])];
-    req.body.images = combinedImages;
   }
   
   Object.assign(product, req.body);

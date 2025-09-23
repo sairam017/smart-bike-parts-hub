@@ -23,7 +23,7 @@ const VendorDashboard = () => {
   const [error, setError] = useState(null);
   const [form, setForm] = useState({ name:'', address:'', phone:'', website:'', latitude:'', longitude:'' });
 
-  const [part, setPart] = useState({ name:'', model:'', models:[''], company:'', vehicleYear:'', price:'', description:'', brand:'', category:'', countInStock:'', image:null, imageUrl:'' });
+  const [part, setPart] = useState({ name:'', model:'', models:[''], company:'', vehicleYear:'', price:'', description:'', brand:'', category:'', countInStock:'', image:null, imageUrl:'', existingImages:[] });
   const [parts, setParts] = useState([]); // vendor's own parts
   const [editingPartId, setEditingPartId] = useState(null);
   const [partFilter, setPartFilter] = useState('');
@@ -332,7 +332,11 @@ const VendorDashboard = () => {
         price: Number(part.price),
         description: part.description,
         imageUrl: part.imageUrl || undefined,
-        images: imageUrl ? [imageUrl] : []
+        images: editingPartId ? 
+          // For updates: combine existing images with new image (if any), remove duplicates
+          [...new Set([...(part.existingImages || []), ...(imageUrl ? [imageUrl] : [])])] :
+          // For creates: just the new image (if any)  
+          (imageUrl ? [imageUrl] : [])
       };
 
       // Add model(s) to payload
@@ -360,7 +364,7 @@ const VendorDashboard = () => {
       setPart({ 
         name: '', model: '', models: [''], company: '', vehicleYear: '', 
         price: '', description: '', brand: '', category: '', countInStock: '', 
-        image: null, imageUrl: '' 
+        image: null, imageUrl: '', existingImages: [] 
       });
       setEditingPartId(null);
       refreshParts();
@@ -393,7 +397,8 @@ const VendorDashboard = () => {
       category: p.type || '',
       countInStock: p.countInStock != null ? String(p.countInStock) : '',
       image: null,
-      imageUrl: (p.images && p.images[0]) || ''
+      imageUrl: '',
+      existingImages: p.images || []
     });
     setTab('parts');
     setMsg(null);
@@ -401,7 +406,7 @@ const VendorDashboard = () => {
 
   const cancelEdit = () => {
     setEditingPartId(null);
-    setPart({ name:'', model:'', models:[''], company:'', vehicleYear:'', price:'', description:'', brand:'', category:'', countInStock:'', image:null, imageUrl:'' });
+    setPart({ name:'', model:'', models:[''], company:'', vehicleYear:'', price:'', description:'', brand:'', category:'', countInStock:'', image:null, imageUrl:'', existingImages:[] });
     setMsg(null);
   };
 
@@ -714,6 +719,41 @@ const VendorDashboard = () => {
                   {/* Image Upload Section for Edit Form */}
                   <div>
                     <label style={{display:'block', marginBottom:6, color:'#1d4ed8'}}>Product Image</label>
+                    
+                    {/* Display existing images when editing */}
+                    {editingPartId && part.existingImages && part.existingImages.length > 0 && (
+                      <div style={{marginBottom:12}}>
+                        <p style={{fontSize:'0.9em', color:'#666', marginBottom:8}}>Existing images ({part.existingImages.length}):</p>
+                        <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
+                          {part.existingImages.map((img, idx) => (
+                            <div key={idx} style={{position:'relative'}}>
+                              <img 
+                                alt={`existing-${idx}`} 
+                                src={img.startsWith('http') ? img : `http://localhost:5000${img}`} 
+                                style={{width:80, height:80, objectFit:'cover', borderRadius:6, border:'2px solid #10b981'}} 
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const newImages = part.existingImages.filter((_, i) => i !== idx);
+                                  setPart(prev => ({...prev, existingImages: newImages}));
+                                }}
+                                style={{
+                                  position:'absolute', top:-8, right:-8, 
+                                  background:'#dc2626', color:'#fff', border:'none',
+                                  borderRadius:'50%', width:20, height:20,
+                                  cursor:'pointer', fontSize:'12px'
+                                }}
+                                title="Remove this image"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
                     <input type="file" accept="image/*" capture="environment" onChange={onImageChange} className="input-blue" style={{ padding:0 }} />
                     <input name="imageUrl" placeholder="...or paste an Image URL" value={part.imageUrl} onChange={onPartChange} className="input-blue" style={{ marginTop:8 }} />
                     {part.image && (

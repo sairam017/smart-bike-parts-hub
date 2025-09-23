@@ -5,6 +5,7 @@ import bikePartsService from '../../services/bikePartsService';
 import LocationContext from '../../context/LocationContext';
 import './bikeParts.css';
 import { formatINR } from '../../utils/currency';
+import { calculateDistanceToShop, formatDistance, debugDistance } from '../../utils/distanceUtils';
 
 const BikePartList = () => {
     const [parts, setParts] = useState([]);
@@ -106,21 +107,11 @@ const BikePartList = () => {
             .finally(()=> setLoading(false));
     }, [selectedCompany, selectedModel, selectedType, selectedYear, location.search]);
 
-    const haversineKm = (lat1, lon1, lat2, lon2) => {
-        const toRad = (v) => v * Math.PI / 180;
-        const R = 6371;
-        const dLat = toRad(lat2-lat1);
-        const dLon = toRad(lon2-lon1);
-        const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-        return R * c;
-    };
-
     const computeDistanceFor = useCallback((part) => {
         if (!userLoc || !part?.shop?.location?.coordinates) return null;
-        const [lng, lat] = part.shop.location.coordinates;
-        const km = haversineKm(userLoc.latitude, userLoc.longitude, lat, lng);
-        return km;
+        const distance = calculateDistanceToShop(userLoc, part.shop.location.coordinates);
+        debugDistance('BikePartList', userLoc, part.shop.location.coordinates, distance);
+        return distance;
     }, [userLoc]);
 
     useEffect(() => {
@@ -282,7 +273,7 @@ const BikePartList = () => {
                                 <div className="part-meta" style={{fontSize:'.6rem'}}>{part.company ? part.company+' • ' : ''}{part.model || (part.type || 'Part')}{part.vehicleYear ? ' • '+part.vehicleYear : ''} <span className="part-price" style={{fontSize:'.5rem'}}>{formatINR(part.price)}</span></div>
                                 {distanceKm != null && (
                                     <div style={{marginTop:4, fontSize:'.5rem', color:'#1e293b', display:'flex', gap:4, alignItems:'center'}}>
-                                        <span style={{background: highlight? '#1d4ed8':'#e2e8f0', color: highlight? '#fff':'#0f172a', padding:'2px 6px', borderRadius:20}}>{distanceKm.toFixed(1)} km</span>
+                                        <span style={{background: highlight? '#1d4ed8':'#e2e8f0', color: highlight? '#fff':'#0f172a', padding:'2px 6px', borderRadius:20}}>{formatDistance(distanceKm)}</span>
                                         {highlight && <span style={{color:'#1d4ed8', fontWeight:600}}>Nearest</span>}
                                     </div>
                                 )}

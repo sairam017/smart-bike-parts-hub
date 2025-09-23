@@ -6,17 +6,32 @@ import useAuth from '../../hooks/useAuth';
 import useCart from '../../hooks/useCart';
 import LocationContext from '../../context/LocationContext';
 import { formatINR } from '../../utils/currency';
+import { calculateDistanceToShop, formatDistance, debugDistance } from '../../utils/distanceUtils';
+
+// Utility function to ensure absolute URLs
+const ensureAbsolute = (src) => {
+  if (!src) return '';
+  if (src.startsWith('http')) return src;
+  return `http://localhost:5000${src}`;
+};
 
 // Enhanced Image Gallery Component
 function ImageGallery({ images, productName, onImageClick }) {
   const [mainImageIndex, setMainImageIndex] = useState(0);
-  
-  const ensureAbsolute = (src) => {
-    if (!src) return '';
-    return src.startsWith('http') ? src : `http://localhost:5000${src}`;
+  const [imageErrors, setImageErrors] = useState(new Set());
+
+  useEffect(() => {
+    setMainImageIndex(0);
+    setImageErrors(new Set());
+  }, [images]);
+
+  const handleImageError = (index) => {
+    setImageErrors(prev => new Set([...prev, index]));
   };
 
-  if (!images || images.length === 0) {
+  const validImages = images?.filter((img, index) => !imageErrors.has(index)) || [];
+
+  if (!validImages.length) {
     return (
       <div style={{
         width: '100%', 
@@ -27,7 +42,8 @@ function ImageGallery({ images, productName, onImageClick }) {
         alignItems: 'center', 
         justifyContent: 'center', 
         color: '#94a3b8',
-        fontSize: '1.1rem'
+        fontSize: '1.1rem',
+        border: '2px solid #e2e8f0'
       }}>
         No Image Available
       </div>
@@ -48,28 +64,29 @@ function ImageGallery({ images, productName, onImageClick }) {
           border: '2px solid #e2e8f0',
           marginBottom: '0.5rem'
         }}
-        onClick={() => onImageClick && onImageClick(mainImageIndex)}
+        onClick={() => onImageClick && onImageClick(Math.min(mainImageIndex, validImages.length - 1))}
       >
         <img 
-          src={ensureAbsolute(images[mainImageIndex])} 
+          src={ensureAbsolute(validImages[Math.min(mainImageIndex, validImages.length - 1)])} 
           alt={productName} 
           style={{
             width: '100%', 
             height: '100%', 
             objectFit: 'contain'
-          }} 
+          }}
+          onError={() => handleImageError(Math.min(mainImageIndex, validImages.length - 1))}
         />
       </div>
       
       {/* Thumbnail navigation - only show if multiple images */}
-      {images.length > 1 && (
+      {validImages.length > 1 && (
         <div style={{
           display: 'flex', 
           gap: 8, 
           overflowX: 'auto',
           paddingBottom: '0.5rem'
         }}>
-          {images.map((img, index) => (
+          {validImages.map((img, index) => (
             <div
               key={index}
               style={{
@@ -91,7 +108,8 @@ function ImageGallery({ images, productName, onImageClick }) {
                   width: '100%', 
                   height: '100%', 
                   objectFit: 'cover'
-                }} 
+                }}
+                onError={() => handleImageError(index)}
               />
             </div>
           ))}
@@ -99,14 +117,14 @@ function ImageGallery({ images, productName, onImageClick }) {
       )}
       
       {/* Image counter */}
-      {images.length > 1 && (
+      {validImages.length > 1 && (
         <div style={{
           textAlign: 'center',
           fontSize: '0.85rem',
           color: '#64748b',
           marginTop: '0.25rem'
         }}>
-          {mainImageIndex + 1} of {images.length}
+          {Math.min(mainImageIndex + 1, validImages.length)} of {validImages.length}
         </div>
       )}
     </div>
@@ -117,11 +135,6 @@ function ImageGallery({ images, productName, onImageClick }) {
 function ImageModal({ images, isOpen, selectedIndex, onClose, productName }) {
   const [currentIndex, setCurrentIndex] = useState(selectedIndex);
   
-  const ensureAbsolute = (src) => {
-    if (!src) return '';
-    return src.startsWith('http') ? src : `http://localhost:5000${src}`;
-  };
-
   const nextImage = () => {
     setCurrentIndex((prev) => (prev + 1) % images.length);
   };
@@ -136,11 +149,11 @@ function ImageModal({ images, isOpen, selectedIndex, onClose, productName }) {
     if (e.key === 'ArrowLeft') prevImage();
   };
 
-  React.useEffect(() => {
+  useEffect(() => {
     setCurrentIndex(selectedIndex);
   }, [selectedIndex]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (isOpen) {
       document.addEventListener('keydown', handleKeyDown);
       document.body.style.overflow = 'hidden';
@@ -266,35 +279,6 @@ function ImageModal({ images, isOpen, selectedIndex, onClose, productName }) {
   );
 }
 
-// Simple image zoom on hover via magnifier box
-function ZoomImage({ src, alt }) {
-  const [zoom, setZoom] = useState({ x: 0, y: 0, show: false });
-  const containerRef = useRef(null);
-  const handleMove = (e) => {
-    const rect = containerRef.current.getBoundingClientRect();
-    const x = ((e.clientX - rect.left) / rect.width) * 100;
-    const y = ((e.clientY - rect.top) / rect.height) * 100;
-    setZoom(z => ({ ...z, x, y }));
-  };
-  return (
-    <div
-      ref={containerRef}
-      onMouseEnter={() => setZoom(z => ({ ...z, show: true }))}
-      onMouseLeave={() => setZoom(z => ({ ...z, show: false }))}
-      onMouseMove={handleMove}
-      style={{position:'relative', width:'100%', maxWidth:420, aspectRatio:'4/3', background:'#f1f5f9', borderRadius:12, overflow:'hidden', cursor:'zoom-in'}}
-    >
-      {src ? <img src={src} alt={alt} style={{width:'100%', height:'100%', objectFit:'contain'}} /> : <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100%',color:'#94a3b8'}}>No Image</div>}
-      {zoom.show && src && (
-        <div style={{position:'absolute', top:0, right:'-52%', width:'50%', height:'100%', border:'1px solid #cbd5e1', background:'#fff', borderRadius:12, display:'none'}} />
-      )}
-      {zoom.show && src && (
-        <div style={{position:'absolute', inset:0, pointerEvents:'none'}} />
-      )}
-    </div>
-  );
-}
-
 const ProductDetailPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -308,249 +292,548 @@ const ProductDetailPage = () => {
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [isImageModalOpen, setIsImageModalOpen] = useState(false);
   
-  // Support both navigation with state and direct link
-  // Always use the ID from the URL if no state is passed
-  let selectedIds = [id];
-  if (
-    typeof window !== 'undefined' &&
-    window.history.state &&
-    window.history.state.usr &&
-    Array.isArray(window.history.state.usr.selectedIds) &&
-    window.history.state.usr.selectedIds.length > 0
-  ) {
-    selectedIds = window.history.state.usr.selectedIds;
-  }
-  const [parts, setParts] = useState([]);
-  const [distanceKm, setDistanceKm] = useState([]);
-  const [qtys, setQtys] = useState([]); // array of qty per part
+  // Single product state (simplified)
+  const [product, setProduct] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [qty, setQty] = useState(1);
   const [placing, setPlacing] = useState(false);
-  const [reviewStatus, setReviewStatus] = useState({ loading:true });
-  const [reviewForm, setReviewForm] = useState({ rating:5, comment:'' });
-  const [submittingReview, setSubmittingReview] = useState(false);
-  const [reviewMsg, setReviewMsg] = useState('');
-  const [recommendations, setRecommendations] = useState([]);
-  // Fetch recommendations based on product ID and user location
-  useEffect(() => {
-    if (!id) return;
-    // Get user location (if not already available)
-    function fetchRecs(loc) {
-      fetch('/api/recommendations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ partIds: [id], location: loc })
-      })
-      .then(res => res.json())
-      .then(data => setRecommendations(data.items || []));
-    }
-    if (userLoc && userLoc.latitude && userLoc.longitude) {
-      fetchRecs({ latitude: userLoc.latitude, longitude: userLoc.longitude });
-    } else if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        pos => fetchRecs({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
-        () => setRecommendations([])
-      );
-    }
-  }, [id, userLoc]);
+  const [distanceKm, setDistanceKm] = useState(null);
 
+  // Fetch single product by ID
   useEffect(() => {
-    let active = true;
-    setLoading(true);
-    Promise.all(selectedIds.map(pid => bikePartsService.getPartById(pid)
-      .then(r => r.data)
-      .catch((err) => {
-        // Set error if API fails for any product
-        if (err?.response?.status === 404) {
-          setError('Product not found. Please check the product ID or try again later.');
-        } else {
-          setError('Failed to load product details. Please try again.');
-        }
-        return null;
-      })
-    ))
-      .then(results => {
-        if (active) {
-          const validParts = results.filter(Boolean);
-          setParts(validParts.length === 1 ? [validParts[0]] : validParts);
-          setQtys(validParts.map(() => 1));
-          // If all failed, set error
-          if (!validParts.length) {
-            setError('No product found for the selected ID(s). Please check the product ID or try again later.');
-          }
-        }
-      })
-      .finally(() => active && setLoading(false));
-    return () => { active = false; };
-  }, [selectedIds]);
-
-  // Dynamic distance update when user location or part changes
-  useEffect(() => {
-    if (!parts.length || !userLoc) {
-      setDistanceKm([]);
+    if (!id) {
+      setError('No product ID provided');
+      setLoading(false);
       return;
     }
-    // Compute distances for all parts
-    const distances = parts.map(part => {
-      if (!part?.shop?.location?.coordinates) return null;
-      const [lng, lat] = part.shop.location.coordinates;
-      const toRad = v => v * Math.PI / 180;
-      const R = 6371;
-      const dLat = toRad(lat - userLoc.latitude);
-      const dLon = toRad(lng - userLoc.longitude);
-      const a = Math.sin(dLat/2)**2 + Math.cos(toRad(userLoc.latitude))*Math.cos(toRad(lat))*Math.sin(dLon/2)**2;
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-      return (R * c).toFixed(1);
-    });
-    setDistanceKm(distances);
 
-    // K-means stub for future clustering (not used for direct distance)
-    // function kMeans(points, k) {
-    //   // points: [{lat, lon}], k: number of clusters
-    //   // ...implement clustering logic here...
-    //   return clusters;
-    // }
-  }, [userLoc, parts]);
+    let isCancelled = false;
+    setLoading(true);
+    setError('');
 
-  // fetch review status when product/user changes
+    console.log('Fetching product with ID:', id); // Debug log
+
+    bikePartsService.getPartById(id)
+      .then(response => {
+        console.log('API Response:', response); // Debug log
+        if (!isCancelled) {
+          setProduct(response.data);
+          setQty(1); // Reset quantity
+        }
+      })
+      .catch(err => {
+        console.error('Error fetching product:', err); // Debug log
+        if (!isCancelled) {
+          if (err?.response?.status === 404) {
+            setError('Product not found. Please check the product ID or try again later.');
+          } else if (err?.response?.status === 500) {
+            setError('Server error. Please try again later.');
+          } else {
+            setError('Failed to load product details. Please try again.');
+          }
+        }
+      })
+      .finally(() => {
+        if (!isCancelled) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [id]);
+
+  // Calculate distance when user location or product changes
   useEffect(() => {
-    if (!user) { setReviewStatus({ canReview:false, alreadyReviewed:false, loading:false }); return; }
-    if (!id) return;
-    let active = true;
-    setReviewStatus(s=>({...s, loading:true}));
-    bikePartsService.getReviewStatus(id)
-      .then(r=> active && setReviewStatus({ ...r.data, loading:false }))
-      .catch(()=> active && setReviewStatus({ canReview:false, alreadyReviewed:false, loading:false }));
-    return () => { active = false; };
-  }, [id, user]);
+    if (!product?.shop?.location?.coordinates || !userLoc) {
+      setDistanceKm(null);
+      return;
+    }
 
-  // All per-part logic is now inside the .map below
+    try {
+      const distance = calculateDistanceToShop(userLoc, product.shop.location.coordinates);
+      debugDistance('ProductDetailPage', userLoc, product.shop.location.coordinates, distance);
+      setDistanceKm(distance);
+    } catch (error) {
+      console.error('Error calculating distance:', error);
+      setDistanceKm(null);
+    }
+  }, [userLoc, product]);
 
-  if (loading) return <div style={{padding:'1rem'}}>Loading...</div>;
-  if (error) return (
-    <div style={{padding:'1rem', color:'red'}}>
-      {error}<br />
-      <button style={{marginTop:'1rem', padding:'8px 16px', borderRadius:8, background:'#1d4ed8', color:'#fff', border:'none', cursor:'pointer'}} onClick={()=>window.history.back()}>Go Back</button>
-    </div>
-  );
-  if (!parts.length) return (
-    <div style={{padding:'1rem', color:'red'}}>
-      No product found for the selected ID(s).<br />
-      <span style={{color:'#475569'}}>Please check the product ID or try again later.</span><br />
-      <button style={{marginTop:'1rem', padding:'8px 16px', borderRadius:8, background:'#1d4ed8', color:'#fff', border:'none', cursor:'pointer'}} onClick={()=>window.history.back()}>Go Back</button>
-    </div>
-  );
+  // Quantity handlers
+  const increaseQty = () => {
+    const maxStock = typeof product?.countInStock === 'number' && product.countInStock > 0 ? product.countInStock : 99;
+    setQty(prev => Math.min(maxStock, prev + 1));
+  };
+
+  const decreaseQty = () => {
+    setQty(prev => Math.max(1, prev - 1));
+  };
+
+  const handleQtyChange = (e) => {
+    const value = Number(e.target.value) || 1;
+    const maxStock = typeof product?.countInStock === 'number' && product.countInStock > 0 ? product.countInStock : 99;
+    setQty(Math.min(maxStock, Math.max(1, value)));
+  };
+
+  // Action handlers
+  const addToCart = () => {
+    if (!product) return;
+
+    if (typeof product.countInStock === 'number') {
+      if (product.countInStock <= 0) {
+        alert('This product is out of stock.');
+        return;
+      }
+      
+      const existing = cart.items.find(i => i.id === product._id);
+      const existingQty = existing?.qty || 0;
+      
+      if (existingQty + qty > product.countInStock) {
+        const remaining = product.countInStock - existingQty;
+        if (remaining > 0) {
+          alert(`Only ${remaining} more in stock (total available ${product.countInStock}).`);
+        } else {
+          alert('No more stock available for this product.');
+        }
+        return;
+      }
+    }
+
+    dispatch({ 
+      type: 'ADD_TO_CART', 
+      payload: { 
+        id: product._id, 
+        name: product.name || product.model, 
+        price: product.price, 
+        qty 
+      } 
+    });
+    
+    alert('Added to cart successfully!');
+    navigate('/');
+  };
+
+  const openMaps = () => {
+    if (!product?.shop?.location?.coordinates) {
+      alert('Shop location not available');
+      return;
+    }
+    
+    const [lng, lat] = product.shop.location.coordinates;
+    const destination = `${lat},${lng}`;
+    const base = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}`;
+    const url = userLoc ? 
+      `${base}&origin=${encodeURIComponent(`${userLoc.latitude},${userLoc.longitude}`)}` : 
+      base;
+    
+    window.open(url, '_blank');
+  };
+
+  const placeOrder = async () => {
+    if (!user) {
+      navigate('/login');
+      return;
+    }
+
+    if (!product) return;
+
+    if (typeof product.countInStock === 'number' && qty > product.countInStock) {
+      alert(`Only ${product.countInStock} in stock. Reduce quantity.`);
+      return;
+    }
+
+    const phone = window.prompt('Enter your active phone number (+country / 10 digits)');
+    if (!phone) return;
+
+    const dateStr = window.prompt('Enter collection date (YYYY-MM-DD)');
+    if (!dateStr) return;
+
+    try {
+      setPlacing(true);
+      const orderItems = [{
+        name: product.name || product.model,
+        qty,
+        price: product.price,
+        product: product._id
+      }];
+      
+      const shippingAddress = userLoc ? 
+        { lat: userLoc.latitude, lng: userLoc.longitude } : 
+        { address: 'Unknown' };
+
+      await api.post('/orders', {
+        orderItems,
+        shippingAddress,
+        paymentMethod: 'cod',
+        phone,
+        collectionDate: dateStr
+      });
+
+      alert('Order placed successfully!');
+      navigate('/');
+    } catch (error) {
+      console.error('Order failed:', error);
+      alert(error.response?.data?.message || 'Order failed. Please try again.');
+    } finally {
+      setPlacing(false);
+    }
+  };
+
+  const handleImageClick = (imageIndex) => {
+    setSelectedImageIndex(imageIndex);
+    setIsImageModalOpen(true);
+  };
+
+  // Loading state
+  if (loading) {
+    return (
+      <div style={{ 
+        padding: '2rem', 
+        textAlign: 'center',
+        maxWidth: 1000,
+        margin: '0 auto'
+      }}>
+        <div style={{ fontSize: '1.2rem', color: '#64748b' }}>Loading product details...</div>
+      </div>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div style={{ 
+        padding: '2rem', 
+        textAlign: 'center',
+        maxWidth: 1000,
+        margin: '0 auto'
+      }}>
+        <div style={{ color: '#dc2626', fontSize: '1.1rem', marginBottom: '1rem' }}>
+          {error}
+        </div>
+        <button 
+          style={{
+            padding: '8px 16px', 
+            borderRadius: 8, 
+            background: '#1d4ed8', 
+            color: '#fff', 
+            border: 'none', 
+            cursor: 'pointer',
+            marginRight: '1rem'
+          }} 
+          onClick={() => window.history.back()}
+        >
+          Go Back
+        </button>
+        <button 
+          style={{
+            padding: '8px 16px', 
+            borderRadius: 8, 
+            background: '#059669', 
+            color: '#fff', 
+            border: 'none', 
+            cursor: 'pointer'
+          }} 
+          onClick={() => window.location.reload()}
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  // No product found
+  if (!product) {
+    return (
+      <div style={{ 
+        padding: '2rem', 
+        textAlign: 'center',
+        maxWidth: 1000,
+        margin: '0 auto'
+      }}>
+        <div style={{ color: '#dc2626', fontSize: '1.1rem', marginBottom: '1rem' }}>
+          Product not found
+        </div>
+        <button 
+          style={{
+            padding: '8px 16px', 
+            borderRadius: 8, 
+            background: '#1d4ed8', 
+            color: '#fff', 
+            border: 'none', 
+            cursor: 'pointer'
+          }} 
+          onClick={() => window.history.back()}
+        >
+          Go Back
+        </button>
+      </div>
+    );
+  }
+
+  const totalPrice = product.price * qty;
+  const isOutOfStock = typeof product.countInStock === 'number' && product.countInStock <= 0;
+  const isOverStock = typeof product.countInStock === 'number' && qty > product.countInStock;
 
   return (
-    <div style={{maxWidth:1000, margin:'0 auto', padding:'1rem'}}>
-      {parts.map((part, idx) => {
-        const qty = qtys[idx] || 1;
-        const setQtyForIdx = (v) => setQtys(qs => qs.map((q, i) => i === idx ? v : q));
-        const inc = () => setQtyForIdx(Math.min(typeof part.countInStock === 'number' && part.countInStock > 0 ? part.countInStock : 99, qty + 1));
-        const dec = () => setQtyForIdx(Math.max(1, qty - 1));
-        const onQtyChange = (e) => {
-          const v = Number(e.target.value) || 1;
-          const max = typeof part.countInStock === 'number' && part.countInStock > 0 ? part.countInStock : 99;
-          setQtyForIdx(Math.min(max, Math.max(1, v)));
-        };
-        const addToCart = () => {
-          if (typeof part.countInStock === 'number') {
-            if (part.countInStock <= 0) { alert('This product is out of stock.'); return; }
-            const existing = cart.items.find(i => i.id === part._id);
-            const existingQty = existing?.qty || 0;
-            if (existingQty + qty > part.countInStock) {
-              const remaining = part.countInStock - existingQty;
-              alert(remaining > 0 ? `Only ${remaining} more in stock (total available ${part.countInStock}).` : 'No more stock available for this product.');
-              return;
-            }
-          }
-          dispatch({ type:'ADD_TO_CART', payload:{ id: part._id, name: part.name || part.model, price: part.price, qty } });
-          navigate('/');
-        };
-        const openMaps = () => {
-          if (!part?.shop?.location?.coordinates) { alert('Shop location not available'); return; }
-          const [lng, lat] = part.shop.location.coordinates;
-          const base = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(lat+','+lng)}`;
-          const url = userLoc ? `${base}&origin=${encodeURIComponent(userLoc.latitude+','+userLoc.longitude)}` : base;
-          window.open(url, '_blank');
-        };
-        const placeOrder = async () => {
-          if (!user) { navigate('/login'); return; }
-          if (typeof part.countInStock === 'number' && qty > part.countInStock) { alert(`Only ${part.countInStock} in stock. Reduce quantity.`); return; }
-          const phone = window.prompt('Enter your active phone number (+country / 10 digits)');
-          if (!phone) return;
-          const dateStr = window.prompt('Enter collection date (YYYY-MM-DD)');
-          try {
-            setPlacing(true);
-            const orderItems = [{ name: part.name || part.model, qty, price: part.price, product: part._id }];
-            const shippingAddress = userLoc ? { lat: userLoc.latitude, lng: userLoc.longitude } : { address: 'Unknown' };
-            await api.post('/orders', { orderItems, shippingAddress, paymentMethod: 'cod', phone, collectionDate: dateStr });
-            navigate('/');
-          } catch(e){
-            console.error(e);
-            alert(e.response?.data?.message || 'Order failed');
-          } finally { setPlacing(false); }
-        };
-        const totalPrice = part.price * qty;
-        
-        const handleImageClick = (imageIndex) => {
-          setSelectedImageIndex(imageIndex);
-          setIsImageModalOpen(true);
-        };
-        
-        return (
-          <div key={part._id} style={{marginBottom:'1.2rem', border:'1px solid #e5e7eb', borderRadius:10, padding:'0.7rem', background:'#fff'}}>
-            <h2 style={{fontSize:'1.2rem', marginBottom:'0.5rem', color:'#1e293b'}}>{part.name || part.model}</h2>
-            <div style={{fontSize:'.9rem', marginBottom:'1rem', color:'#64748b'}}>{part.company} • {part.model} • {part.vehicleYear}</div>
-            
-            {/* Enhanced Image Gallery */}
-            <ImageGallery 
-              images={part.images} 
-              productName={part.name || part.model}
-              onImageClick={handleImageClick}
-            />
-            
-            <div style={{fontWeight:600, color:'#1d4ed8', fontSize:'.85rem', marginBottom:'0.5rem'}}>Distance: {distanceKm && distanceKm[idx] != null ? `${distanceKm[idx]} km` : 'N/A'}</div>
-            <div style={{margin:'6px 0', fontSize:'.9rem', lineHeight:1.5}}>{part.description}</div>
-            <div style={{fontSize:'.85rem', color:'#475569', marginBottom:'1rem'}}>Price (each): <strong style={{color:'#059669', fontSize:'1.1em'}}>{formatINR(part.price)}</strong></div>
-            {typeof part.countInStock === 'number' && <div style={{fontSize:'.6rem', color: part.countInStock>0?'#15803d':'#b91c1c'}}>Stock: {part.countInStock}</div>}
-            <div style={{display:'flex', alignItems:'center', gap:6}}>
-              <span style={{fontSize:'.65rem'}}>Qty:</span>
-              <div style={{display:'flex', alignItems:'center', border:'1px solid #cbd5e1', borderRadius:6}}>
-                <button type='button' onClick={dec} style={qtyBtnStyle}>-</button>
-                <input value={qty} onChange={onQtyChange} style={{width:36, textAlign:'center', fontSize:'.7rem', border:'none', outline:'none', background:'#fff'}} />
-                <button type='button' onClick={inc} style={qtyBtnStyle}>+</button>
-              </div>
-              <div style={{marginLeft:'auto', fontSize:'.7rem'}}>Total: <strong>{formatINR(totalPrice)}</strong></div>
+    <div style={{ maxWidth: 1000, margin: '0 auto', padding: '1rem' }}>
+      <div style={{
+        border: '1px solid #e5e7eb',
+        borderRadius: 10,
+        padding: '1.5rem',
+        background: '#fff',
+        boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+      }}>
+        {/* Product Header */}
+        <div style={{ marginBottom: '1rem' }}>
+          <h1 style={{ 
+            fontSize: '1.5rem', 
+            marginBottom: '0.5rem', 
+            color: '#1e293b',
+            fontWeight: 700
+          }}>
+            {product.name || product.model}
+          </h1>
+          <div style={{ 
+            fontSize: '1rem', 
+            marginBottom: '1rem', 
+            color: '#64748b' 
+          }}>
+            {product.company} • {product.model} • {product.vehicleYear}
+          </div>
+        </div>
+
+        {/* Enhanced Image Gallery */}
+        <ImageGallery 
+          images={product.images} 
+          productName={product.name || product.model}
+          onImageClick={handleImageClick}
+        />
+
+        {/* Product Details */}
+        <div style={{ marginBottom: '1rem' }}>
+          {distanceKm != null && (
+            <div style={{
+              fontWeight: 600,
+              color: '#1d4ed8',
+              fontSize: '1rem',
+              marginBottom: '0.5rem'
+            }}>
+              📍 Distance: {formatDistance(distanceKm)} away
             </div>
-            <div style={{display:'flex', gap:6, flexWrap:'wrap', marginTop:6}}>
-              <button onClick={addToCart} disabled={typeof part.countInStock==='number' && part.countInStock<=0} className='btn-outline' style={{...actBtn, opacity: (typeof part.countInStock==='number' && part.countInStock<=0)? .6:1, fontSize:'.7rem'}}>Add To Cart</button>
-              <button onClick={openMaps} className='btn-outline' style={{...actBtn, fontSize:'.7rem'}}>Get Maps</button>
-              <button disabled={placing || (typeof part.countInStock==='number' && (part.countInStock<=0 || qty>part.countInStock))} onClick={placeOrder} className='btn-primary' style={{...actBtn, opacity:(typeof part.countInStock==='number' && (part.countInStock<=0 || qty>part.countInStock))? .6:1, fontSize:'.7rem'}}>{placing? 'Placing...' : 'Place Order'}</button>
+          )}
+
+          {product.description && (
+            <div style={{
+              margin: '1rem 0',
+              fontSize: '1rem',
+              lineHeight: 1.6,
+              color: '#374151'
+            }}>
+              {product.description}
+            </div>
+          )}
+
+          <div style={{
+            fontSize: '1.2rem',
+            color: '#059669',
+            fontWeight: 700,
+            marginBottom: '0.5rem'
+          }}>
+            Price: {formatINR(product.price)} each
+          </div>
+
+          {typeof product.countInStock === 'number' && (
+            <div style={{
+              fontSize: '0.9rem',
+              color: product.countInStock > 0 ? '#15803d' : '#dc2626',
+              fontWeight: 600,
+              marginBottom: '1rem'
+            }}>
+              Stock: {product.countInStock} {product.countInStock === 1 ? 'unit' : 'units'} available
+            </div>
+          )}
+        </div>
+
+        {/* Quantity Controls */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '1rem',
+          marginBottom: '1rem',
+          flexWrap: 'wrap'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <span style={{ fontSize: '1rem', fontWeight: 600 }}>Quantity:</span>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              border: '2px solid #cbd5e1',
+              borderRadius: 8,
+              overflow: 'hidden'
+            }}>
+              <button
+                type="button"
+                onClick={decreaseQty}
+                style={{
+                  padding: '8px 12px',
+                  background: '#f8fafc',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: '1rem',
+                  fontWeight: 700
+                }}
+              >
+                -
+              </button>
+              <input
+                type="number"
+                value={qty}
+                onChange={handleQtyChange}
+                style={{
+                  width: 60,
+                  textAlign: 'center',
+                  fontSize: '1rem',
+                  border: 'none',
+                  outline: 'none',
+                  background: '#fff',
+                  padding: '8px 4px'
+                }}
+                min="1"
+                max={typeof product.countInStock === 'number' ? product.countInStock : 99}
+              />
+              <button
+                type="button"
+                onClick={increaseQty}
+                style={{
+                  padding: '8px 12px',
+                  background: '#f8fafc',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: '1rem',
+                  fontWeight: 700
+                }}
+              >
+                +
+              </button>
             </div>
           </div>
-        );
-      })}
-      
+
+          <div style={{
+            marginLeft: 'auto',
+            fontSize: '1.1rem',
+            fontWeight: 700,
+            color: '#059669'
+          }}>
+            Total: {formatINR(totalPrice)}
+          </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div style={{
+          display: 'flex',
+          gap: '1rem',
+          flexWrap: 'wrap',
+          marginTop: '1.5rem'
+        }}>
+          <button
+            onClick={addToCart}
+            disabled={isOutOfStock}
+            style={{
+              flex: '1 1 200px',
+              padding: '12px 16px',
+              borderRadius: 8,
+              background: isOutOfStock ? '#9ca3af' : '#1d4ed8',
+              color: '#fff',
+              border: 'none',
+              cursor: isOutOfStock ? 'not-allowed' : 'pointer',
+              fontSize: '1rem',
+              fontWeight: 600,
+              transition: 'background-color 0.2s'
+            }}
+          >
+            {isOutOfStock ? 'Out of Stock' : 'Add to Cart'}
+          </button>
+
+          <button
+            onClick={openMaps}
+            style={{
+              flex: '1 1 200px',
+              padding: '12px 16px',
+              borderRadius: 8,
+              background: '#059669',
+              color: '#fff',
+              border: 'none',
+              cursor: 'pointer',
+              fontSize: '1rem',
+              fontWeight: 600,
+              transition: 'background-color 0.2s'
+            }}
+          >
+            📍 Get Directions
+          </button>
+
+          <button
+            onClick={placeOrder}
+            disabled={placing || isOutOfStock || isOverStock}
+            style={{
+              flex: '1 1 200px',
+              padding: '12px 16px',
+              borderRadius: 8,
+              background: (placing || isOutOfStock || isOverStock) ? '#9ca3af' : '#dc2626',
+              color: '#fff',
+              border: 'none',
+              cursor: (placing || isOutOfStock || isOverStock) ? 'not-allowed' : 'pointer',
+              fontSize: '1rem',
+              fontWeight: 600,
+              transition: 'background-color 0.2s'
+            }}
+          >
+            {placing ? 'Placing Order...' : 'Place Order'}
+          </button>
+        </div>
+
+        {/* Shop Information */}
+        {product.shop && (
+          <div style={{
+            marginTop: '2rem',
+            padding: '1rem',
+            background: '#f8fafc',
+            borderRadius: 8,
+            border: '1px solid #e2e8f0'
+          }}>
+            <h3 style={{ 
+              margin: '0 0 0.5rem 0', 
+              color: '#1e293b',
+              fontSize: '1.1rem'
+            }}>
+              Available at: {product.shop.name}
+            </h3>
+            {product.shop.address && (
+              <p style={{ 
+                margin: '0', 
+                color: '#64748b',
+                fontSize: '0.9rem'
+              }}>
+                📍 {product.shop.address}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Image Modal for full-screen viewing */}
       <ImageModal
-        images={parts.length > 0 ? parts[0].images : []}
+        images={product.images || []}
         isOpen={isImageModalOpen}
         selectedIndex={selectedImageIndex}
         onClose={() => setIsImageModalOpen(false)}
-        productName={parts.length > 0 ? (parts[0].name || parts[0].model) : ''}
+        productName={product.name || product.model}
       />
     </div>
   );
 };
-
-const qtyBtnStyle = { padding:'4px 10px', background:'#fff', border:'none', cursor:'pointer', fontSize:'.85rem' };
-const actBtn = { flex:'1 1 140px' };
-
-function ensureAbsolute(url){
-  if (!url) return url;
-  if (url.startsWith('http')) return url;
-  return `http://localhost:5000${url}`;
-}
 
 export default ProductDetailPage;
