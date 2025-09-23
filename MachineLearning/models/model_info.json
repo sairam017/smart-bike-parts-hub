@@ -1,0 +1,55 @@
+{
+  "version": "1.0.0",
+  "training_date": "2025-09-23T12:39:21.202866",
+  "training_time_seconds": 20.31605,
+  "dataset_size": 1797,
+  "feature_shapes": {
+    "text": [
+      1797,
+      3299
+    ],
+    "categorical": [
+      1797,
+      62
+    ],
+    "numerical": [
+      1797,
+      5
+    ],
+    "compatibility": [
+      1797,
+      0
+    ]
+  },
+  "similarity_matrix_shape": [
+    1797,
+    1797
+  ],
+  "quality_score": 99.68,
+  "model_stats": {
+    "matrix_shape": [
+      1797,
+      1797
+    ],
+    "mean_similarity": 0.1761683345752531,
+    "max_similarity": 0.8499999990000002,
+    "min_similarity": 0.06787087611672474,
+    "non_zero_similarities": 3229209,
+    "sparsity": 1.0,
+    "feature_weights": {
+      "text": 0.4,
+      "categorical": 0.35,
+      "compatibility": 0.25
+    },
+    "business_rules": {
+      "same_company_boost": 0.1,
+      "same_brand_boost": 0.05,
+      "price_range_factor": 0.2,
+      "in_stock_boost": 0.05,
+      "high_rating_boost": 0.03
+    },
+    "total_products": 1797,
+    "unique_companies": 20,
+    "unique_types": 32
+  }
+}
