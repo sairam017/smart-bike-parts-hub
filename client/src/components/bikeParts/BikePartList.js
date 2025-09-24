@@ -6,6 +6,9 @@ import LocationContext from '../../context/LocationContext';
 import './bikeParts.css';
 import { formatINR } from '../../utils/currency';
 import { calculateDistanceToShop, formatDistance, debugDistance } from '../../utils/distanceUtils';
+// import InteractiveMap from '../maps/InteractiveMap';
+import ProductMap from '../maps/ProductMap';
+import mapsService from '../../services/mapsService';
 
 const BikePartList = () => {
     const [parts, setParts] = useState([]);
@@ -31,6 +34,10 @@ const BikePartList = () => {
     // Image preview state
     const [hoveredProduct, setHoveredProduct] = useState(null);
     const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
+
+    // Map view state
+    const [showMap, setShowMap] = useState(false);
+    const [shopsForMap, setShopsForMap] = useState([]);
 
 
     // All hooks must be called at the top level, never conditionally
@@ -126,6 +133,46 @@ const BikePartList = () => {
         if (entries.length) setPrefShopProductId(entries[0][0]);
     }, [userLoc, parts, computeDistanceFor]);
 
+    // Prepare shops for map display
+    useEffect(() => {
+        if (!parts.length) {
+            setShopsForMap([]);
+            return;
+        }
+
+        const productIds = parts.map(p => p._id);
+        const fetchShopsForProducts = async () => {
+            try {
+                const shopsData = await mapsService.getShopsForProducts(productIds);
+                const formattedShops = mapsService.formatShopsForMap(shopsData, userLoc);
+                setShopsForMap(formattedShops);
+            } catch (error) {
+                console.error('Error fetching shops for map:', error);
+                setShopsForMap([]);
+            }
+        };
+
+        if (showMap) {
+            fetchShopsForProducts();
+        }
+    }, [parts, userLoc, showMap]);
+
+    const handleToggleMap = () => {
+        setShowMap(!showMap);
+    };
+
+    const handleShopSelect = (shop, isSelected) => {
+        console.log('Shop selected:', shop.name, 'Selected:', isSelected);
+        // Could be used to filter products by selected shops
+    };
+
+    const currentUserLocation = userLoc ? {
+        lat: userLoc.latitude,
+        lng: userLoc.longitude
+    } : null;
+
+    const mapCenter = mapsService.getMapCenter(shopsForMap, currentUserLocation);
+
     // Only after all hooks, handle conditional rendering
     if (loading) {
         return <div className="parts-wrap">Loading products... If this takes too long, please check your connection or try again.</div>;
@@ -168,6 +215,47 @@ const BikePartList = () => {
                     const params = new URLSearchParams();
                     navigate({ pathname: '/parts', search: params.toString() });
                  }} className="btn-outline" style={{padding:'6px 12px'}}>Reset</button>
+                <button 
+                    onClick={handleToggleMap}
+                    style={{
+                        padding: '10px 16px',
+                        background: showMap ? '#dc2626' : '#059669',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                        transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                        e.target.style.transform = 'translateY(-1px)';
+                        e.target.style.boxShadow = '0 4px 8px rgba(0,0,0,0.15)';
+                    }}
+                    onMouseLeave={(e) => {
+                        e.target.style.transform = 'translateY(0px)';
+                        e.target.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+                    }}
+                >
+                    {showMap ? '📋 Show Products List' : '🗺️ Find Shops & Get Directions'}
+                </button>
+                {showMap && (
+                    <div style={{
+                        background: '#f0f9ff',
+                        padding: '6px 12px',
+                        borderRadius: '6px',
+                        fontSize: '12px',
+                        color: '#0369a1',
+                        fontWeight: '500',
+                        marginLeft: '8px'
+                    }}>
+                        💡 Set your location & click "Directions" for navigation
+                    </div>
+                )}
                 <div style={{marginLeft:'auto', fontSize:12, color:'#475569'}}>Showing {parts.length} items</div>
             </div>
 
@@ -202,6 +290,18 @@ const BikePartList = () => {
                     )}
                 </div>
                 {!parts.length && <p>No parts found{searchTerm?` for "${searchTerm}"`:''}.</p>}
+                
+                {/* Map View */}
+                {showMap && parts.length > 0 && (
+                    <div style={{marginBottom: '1rem'}}>
+                        <ProductMap 
+                            shops={shopsForMap}
+                            userLocation={currentUserLocation}
+                        />
+                    </div>
+                )}
+
+                {/* Parts Grid */}
                 <div className="parts-list">
                     {parts.map(part => {
                         const distanceKm = distanceCache[part._id];

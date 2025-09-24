@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import './landing.css';
 import bikePartsService from '../../services/bikePartsService';
 import metaService from '../../services/metaService';
@@ -26,6 +26,8 @@ const LandingPage = () => {
   const [companyMeta, setCompanyMeta] = useState([]); // {company,image}
   const [modelMeta, setModelMeta] = useState([]); // for selected company
   const navigate = useNavigate();
+  const location = useLocation();
+  const [orderMessage, setOrderMessage] = useState(null);
   const [selCategory, setSelCategory] = useState('all');
   const [searchFeedback, setSearchFeedback] = useState('');
   // Refs for auto-scroll targets
@@ -133,6 +135,27 @@ const LandingPage = () => {
     };
   }, []);
 
+  // Handle order confirmation message from navigation state
+  useEffect(() => {
+    if (location.state?.message) {
+      setOrderMessage({
+        text: location.state.message,
+        orderId: location.state.orderId,
+        type: 'success'
+      });
+
+      // Clear the message after 5 seconds
+      const timer = setTimeout(() => {
+        setOrderMessage(null);
+      }, 5000);
+
+      // Clear the location state to prevent showing the message again on refresh
+      navigate(location.pathname, { replace: true });
+
+      return () => clearTimeout(timer);
+    }
+  }, [location.state, navigate, location.pathname]);
+
   // Load models when company selected
   useEffect(() => {
     if (!selCompany) { setCompanyModels([]); setSelModel(''); setModelParts([]); return; }
@@ -208,6 +231,25 @@ const LandingPage = () => {
           <button onClick={()=> setShowWelcome(false)} className="text-white/80 hover:text-white text-sm">✕</button>
         </div>
       )}
+
+      {/* Order Confirmation Message */}
+      {orderMessage && (
+        <div className="fixed top-2 left-1/2 -translate-x-1/2 bg-green-500 text-white px-6 py-4 rounded-xl shadow-lg flex items-center gap-3 animate-fade-in-down z-50 max-w-md text-center">
+          <div>
+            <div className="font-semibold text-lg">🎉 {orderMessage.text}</div>
+            {orderMessage.orderId && (
+              <div className="text-sm opacity-90 mt-1">Order ID: {orderMessage.orderId}</div>
+            )}
+          </div>
+          <button 
+            onClick={() => setOrderMessage(null)} 
+            className="text-white/80 hover:text-white text-sm ml-2 flex-shrink-0"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       <header className="lp-header">
         <div className="lp-brand">Smart Bike Parts Hub</div>
   <form className="lp-search" onSubmit={onSearch}>

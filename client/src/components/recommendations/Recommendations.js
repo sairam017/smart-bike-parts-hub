@@ -4,6 +4,7 @@ import recommendationService from '../../services/recommendationService';
 import LocationContext from '../../context/LocationContext';
 import { formatINR } from '../../utils/currency';
 import { calculateDistanceToShop, formatDistance } from '../../utils/distanceUtils';
+import ShopAvailabilityMap from '../maps/ShopAvailabilityMap';
 
 // Utility function to ensure absolute URLs
 const ensureAbsolute = (src) => {
@@ -12,7 +13,14 @@ const ensureAbsolute = (src) => {
   return `http://localhost:5000${src}`;
 };
 
-const RecommendationCard = ({ product, userLocation }) => {
+// Enhanced Recommendation Card for selection mode
+const RecommendationCard = ({ 
+  product, 
+  userLocation, 
+  isSelected = false, 
+  onToggle = null,
+  selectionMode = false 
+}) => {
   const [distance, setDistance] = useState(null);
 
   useEffect(() => {
@@ -28,29 +36,60 @@ const RecommendationCard = ({ product, userLocation }) => {
 
   const firstImage = product.images && product.images.length > 0 ? product.images[0] : null;
 
-  return (
-    <Link
-      to={`/product/${product._id}`}
+  const handleClick = (e) => {
+    if (selectionMode && onToggle) {
+      e.preventDefault();
+      onToggle(product);
+    }
+  };
+
+  const CardContent = (
+    <div
       style={{
-        textDecoration: 'none',
-        color: 'inherit',
-        display: 'block',
-        border: '1px solid #e5e7eb',
+        border: `2px solid ${selectionMode && isSelected ? '#1d4ed8' : '#e5e7eb'}`,
         borderRadius: 8,
         padding: '1rem',
-        background: '#fff',
-        transition: 'transform 0.2s, box-shadow 0.2s',
-        height: '100%'
+        background: selectionMode && isSelected ? '#eff6ff' : '#fff',
+        transition: 'transform 0.2s, box-shadow 0.2s, border-color 0.2s',
+        height: '100%',
+        cursor: selectionMode ? 'pointer' : 'default',
+        position: 'relative'
       }}
+      onClick={handleClick}
       onMouseEnter={(e) => {
-        e.currentTarget.style.transform = 'translateY(-2px)';
-        e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
+        if (!selectionMode) {
+          e.currentTarget.style.transform = 'translateY(-2px)';
+          e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
+        }
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.transform = 'translateY(0)';
-        e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+        if (!selectionMode) {
+          e.currentTarget.style.transform = 'translateY(0)';
+          e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+        }
       }}
     >
+      {/* Selection Checkbox */}
+      {selectionMode && (
+        <div style={{
+          position: 'absolute',
+          top: '8px',
+          right: '8px',
+          width: '20px',
+          height: '20px',
+          borderRadius: '50%',
+          background: isSelected ? '#1d4ed8' : '#e5e7eb',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: 'white',
+          fontSize: '12px',
+          fontWeight: 'bold'
+        }}>
+          {isSelected ? '✓' : ''}
+        </div>
+      )}
+
       {/* Product Image */}
       <div style={{
         width: '100%',
@@ -162,15 +201,39 @@ const RecommendationCard = ({ product, userLocation }) => {
           {product.recommendation_reason}
         </div>
       )}
+    </div>
+  );
+
+  if (selectionMode) {
+    return CardContent;
+  }
+
+  return (
+    <Link
+      to={`/product/${product._id}`}
+      style={{
+        textDecoration: 'none',
+        color: 'inherit',
+        display: 'block'
+      }}
+    >
+      {CardContent}
     </Link>
   );
 };
 
-const Recommendations = ({ productId, currentProduct }) => {
+const Recommendations = ({ 
+  productId, 
+  currentProduct,
+  onRecommendationsLoad = null,
+  showContinueButton = false 
+}) => {
   const [recommendations, setRecommendations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [source, setSource] = useState('');
+  const [selectedRecommendations, setSelectedRecommendations] = useState([]);
+  const [showMap, setShowMap] = useState(false);
   const { location: userLoc } = useContext(LocationContext) || {};
 
   useEffect(() => {
@@ -190,22 +253,46 @@ const Recommendations = ({ productId, currentProduct }) => {
         if (response.data.items && response.data.items.length > 0) {
           setRecommendations(response.data.items);
           setSource(response.data.source || 'recommendations');
+          
+          // Don't automatically call the callback - let user decide what to select
+          console.log('Recommendations loaded:', response.data.items.length, 'items');
         } else {
           setRecommendations([]);
           setSource('no_recommendations');
+          console.log('No recommendations found');
         }
 
       } catch (err) {
         console.error('Error fetching recommendations:', err);
         setError('Failed to load recommendations');
         setRecommendations([]);
+        console.log('Recommendation error:', err.message);
       } finally {
         setLoading(false);
       }
     };
 
     fetchRecommendations();
-  }, [productId, userLoc]);
+  }, [productId, userLoc, onRecommendationsLoad]);
+
+  // Toggle recommendation selection
+  const toggleRecommendation = (product) => {
+    setSelectedRecommendations(prev => {
+      const isSelected = prev.find(p => p._id === product._id);
+      if (isSelected) {
+        return prev.filter(p => p._id !== product._id);
+      } else {
+        return [...prev, product];
+      }
+    });
+  };
+
+  // Continue to maps with selected recommendations
+  const continueToMaps = () => {
+    if (onRecommendationsLoad) {
+      onRecommendationsLoad(selectedRecommendations);
+    }
+  };
 
   if (loading) {
     return (
@@ -274,7 +361,7 @@ const Recommendations = ({ productId, currentProduct }) => {
           fontSize: '1.2rem',
           fontWeight: 600
         }}>
-          🤖 AI Recommendations
+          More Recommendations
         </h3>
         <div style={{ 
           color: '#64748b',
@@ -324,9 +411,93 @@ const Recommendations = ({ productId, currentProduct }) => {
             key={product._id}
             product={product}
             userLocation={userLoc}
+            isSelected={selectedRecommendations.some(p => p._id === product._id)}
+            onToggle={showContinueButton ? toggleRecommendation : null}
+            selectionMode={showContinueButton}
           />
         ))}
       </div>
+
+      {/* Selection Summary and Continue Button */}
+      {showContinueButton && (
+        <div style={{
+          marginTop: '1.5rem',
+          padding: '1rem',
+          background: '#f0f9ff',
+          borderRadius: '8px',
+          border: '1px solid #0ea5e9'
+        }}>
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '1rem'
+          }}>
+            <div>
+              <div style={{ fontWeight: 'bold', color: '#0c4a6e', marginBottom: '4px' }}>
+                {selectedRecommendations.length} additional products selected
+              </div>
+              <div style={{ fontSize: '0.9rem', color: '#0369a1' }}>
+                {selectedRecommendations.length === 0 
+                  ? 'Select products to add to your shopping list'
+                  : 'We\'ll find shops that have all your selected items'
+                }
+              </div>
+            </div>
+            
+            <button
+              onClick={continueToMaps}
+              style={{
+                padding: '12px 24px',
+                background: '#1d4ed8',
+                color: 'white',
+                border: 'none',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontSize: '1rem',
+                fontWeight: 'bold',
+                transition: 'background-color 0.2s'
+              }}
+              onMouseEnter={(e) => e.target.style.background = '#1e40af'}
+              onMouseLeave={(e) => e.target.style.background = '#1d4ed8'}
+            >
+              🗺️ Get Maps
+            </button>
+          </div>
+          
+          {selectedRecommendations.length > 0 && (
+            <div style={{
+              marginTop: '1rem',
+              padding: '0.75rem',
+              background: 'white',
+              borderRadius: '6px',
+              border: '1px solid #bfdbfe'
+            }}>
+              <div style={{ fontSize: '0.9rem', fontWeight: 'bold', color: '#1e293b', marginBottom: '0.5rem' }}>
+                Selected Products:
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                {selectedRecommendations.map((product, index) => (
+                  <span
+                    key={product._id}
+                    style={{
+                      fontSize: '0.8rem',
+                      padding: '4px 8px',
+                      background: '#dbeafe',
+                      color: '#1e40af',
+                      borderRadius: '4px',
+                      border: '1px solid #93c5fd'
+                    }}
+                  >
+                    {product.name || product.model}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {recommendations.length > 6 && (
         <div style={{
@@ -339,6 +510,84 @@ const Recommendations = ({ productId, currentProduct }) => {
           }}>
             Showing {Math.min(recommendations.length, 6)} of {recommendations.length} recommendations
           </div>
+        </div>
+      )}
+
+      {/* Map Button and Map Section */}
+      {recommendations.length > 0 && (
+        <div style={{ marginTop: '1.5rem', textAlign: 'center' }}>
+          <button
+            onClick={() => setShowMap(!showMap)}
+            style={{
+              padding: '12px 24px',
+              backgroundColor: showMap ? '#dc2626' : '#059669',
+              color: 'white',
+              border: 'none',
+              borderRadius: '8px',
+              fontSize: '16px',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              transition: 'all 0.2s ease',
+              boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+            }}
+            onMouseOver={(e) => {
+              e.target.style.transform = 'translateY(-2px)';
+              e.target.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+            }}
+            onMouseOut={(e) => {
+              e.target.style.transform = 'translateY(0)';
+              e.target.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+            }}
+          >
+            {showMap ? (
+              <>
+                ❌ Hide Shop Map
+              </>
+            ) : (
+              <>
+                🗺️ Find Shops Near You
+              </>
+            )}
+          </button>
+          
+          {showMap && (
+            <div style={{ 
+              marginTop: '1rem',
+              padding: '1rem',
+              backgroundColor: '#fff',
+              borderRadius: '8px',
+              border: '1px solid #e2e8f0',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+            }}>
+              <h4 style={{ 
+                margin: '0 0 1rem 0', 
+                color: '#1e293b',
+                fontSize: '1.1rem',
+                fontWeight: 600 
+              }}>
+                🏪 Shop Availability for Recommended Products
+              </h4>
+              <p style={{
+                color: '#64748b',
+                fontSize: '14px',
+                marginBottom: '1rem',
+                textAlign: 'left'
+              }}>
+                Click anywhere on the map to find the nearest shop, or click shop markers to see which recommended products are available and get directions.
+              </p>
+              <ShopAvailabilityMap 
+                productIds={recommendations.map(rec => rec._id)}
+                showAfterRecommendations={true}
+                onShopSelect={(shop) => {
+                  console.log('Selected shop from recommendations:', shop);
+                  // You can add logic here to highlight matching recommendations
+                }}
+              />
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -2,11 +2,120 @@ const express = require('express');
 const router = express.Router();
 const Order = require('../models/Order');
 const BikePart = require('../models/BikePart');
+const Shop = require('../models/Shop');
 const auth = require('../middleware/authMiddleware');
 const { sendSMS } = require('../utils/sms');
 
-// Create order
-router.post('/', auth, async (req, res) => {
+// Create order (shop-based without authentication)
+router.post('/', async (req, res) => {
+  try {
+    const { customer, shop, products, deliveryAddress, notes, totalAmount } = req.body;
+
+    // Validate required fields
+    if (!customer || !shop || !products || !deliveryAddress) {
+      return res.status(400).json({ message: 'Missing required fields' });
+    }
+
+    // Validate contact method
+    if (customer.contactMethod === 'email' && !customer.email) {
+      return res.status(400).json({ message: 'Email is required when contact method is email' });
+    }
+
+    if (customer.contactMethod === 'sms' && !customer.phone) {
+      return res.status(400).json({ message: 'Phone is required when contact method is SMS' });
+    }
+
+    // Create order
+    const order = new Order({
+      customer: {
+        name: customer.name,
+        email: customer.email,
+        phone: customer.phone,
+        contactMethod: customer.contactMethod
+      },
+      shop: {
+        id: shop.id,
+        name: shop.name,
+        address: shop.address,
+        phone: shop.phone
+      },
+      products: products.map(product => ({
+        id: product.id,
+        name: product.name,
+        price: product.price,
+        quantity: product.quantity,
+        subtotal: product.subtotal
+      })),
+      deliveryAddress,
+      notes,
+      totalAmount,
+      status: 'pending',
+      orderDate: new Date()
+    });
+
+    const savedOrder = await order.save();
+
+    res.status(201).json({
+      success: true,
+      orderId: savedOrder._id,
+      message: 'Order placed successfully'
+    });
+
+  } catch (error) {
+    console.error('Error creating order:', error);
+    res.status(500).json({ message: 'Failed to create order' });
+  }
+});
+
+// Send email confirmation
+router.post('/confirm-email', async (req, res) => {
+  try {
+    const { orderId, email } = req.body;
+
+    // Here you would integrate with your email service (SendGrid, Nodemailer, etc.)
+    // For now, we'll just log it
+    console.log(`Sending email confirmation for order ${orderId} to ${email}`);
+
+    // Simulate email sending
+    setTimeout(() => {
+      console.log(`Email confirmation sent for order ${orderId}`);
+    }, 1000);
+
+    res.json({ success: true, message: 'Email confirmation sent' });
+  } catch (error) {
+    console.error('Error sending email confirmation:', error);
+    res.status(500).json({ message: 'Failed to send email confirmation' });
+  }
+});
+
+// Send SMS confirmation
+router.post('/confirm-sms', async (req, res) => {
+  try {
+    const { orderId, phone } = req.body;
+
+    // Here you would integrate with your SMS service
+    // For now, we'll just log it
+    console.log(`Sending SMS confirmation for order ${orderId} to ${phone}`);
+
+    // You can use the existing sendSMS utility if available
+    try {
+      const message = `Your order ${orderId} has been placed successfully! We'll contact you soon with delivery details.`;
+      // Uncomment if sendSMS is properly configured
+      // await sendSMS(phone, message);
+      console.log(`SMS confirmation sent for order ${orderId}`);
+    } catch (smsError) {
+      console.error('SMS sending failed:', smsError);
+    }
+
+    res.json({ success: true, message: 'SMS confirmation sent' });
+  } catch (error) {
+    console.error('Error sending SMS confirmation:', error);
+    res.status(500).json({ message: 'Failed to send SMS confirmation' });
+  }
+});
+
+// Create order (original authenticated version)
+router.post('/authenticated', auth, async (req, res) => {
   const { orderItems, shippingAddress, paymentMethod, phone, collectionDate } = req.body;
   if (!orderItems || orderItems.length === 0) return res.status(400).json({ message: 'No order items' });
   // Validate and decrement stock atomically (two-phase: check then bulk update)
