@@ -1,4 +1,6 @@
-const nodemailer = require('nodemailer');
+﻿const nodemailer = require('nodemailer');
+
+
 /**
  * Send an email (supports text and html)
  * @param {string} to
@@ -16,7 +18,7 @@ const sendEmail = async (to, subject, text, html) => {
   });
 
   const mailOptions = {
-    from: `"Smart Bike Parts Hub" <${process.env.EMAIL_USER}>`,
+    from: `"Smart Bike Parts support" <${process.env.EMAIL_USER}>`,
     to,
     subject,
   };

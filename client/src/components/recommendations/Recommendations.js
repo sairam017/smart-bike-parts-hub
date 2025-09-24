@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import recommendationService from '../../services/recommendationService';
 import LocationContext from '../../context/LocationContext';
 import { formatINR } from '../../utils/currency';
@@ -228,6 +228,7 @@ const Recommendations = ({
   onRecommendationsLoad = null,
   showContinueButton = false 
 }) => {
+  const navigate = useNavigate();
   const [recommendations, setRecommendations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -289,9 +290,14 @@ const Recommendations = ({
 
   // Continue to maps with selected recommendations
   const continueToMaps = () => {
-    if (onRecommendationsLoad) {
-      onRecommendationsLoad(selectedRecommendations);
-    }
+    // Navigate to the dedicated map page with selected products
+    const selectedProducts = currentProduct ? [currentProduct] : [];
+    navigate('/maps', {
+      state: {
+        selectedProducts,
+        recommendedProducts: selectedRecommendations
+      }
+    });
   };
 
   if (loading) {

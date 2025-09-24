@@ -1,340 +1,697 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-const ProductMap = ({ shops = [], userLocation = null }) => {
+const ProductMap = ({ 
+  shops = [], 
+  userLocation = null, 
+  selectedParts = [], 
+  selectedProducts = [], 
+  showShopInfo = false, 
+  showUserLocation = false 
+}) => {
   const mapContainerRef = useRef(null);
   const mapInstanceRef = useRef(null);
-  const userLocationMarkerRef = useRef(null);
-  const shopMarkersRef = useRef([]);
-  const [mapReady, setMapReady] = useState(false);
+  const markersRef = useRef([]);
   const [leafletLoaded, setLeafletLoaded] = useState(false);
   const [currentUserLocation, setCurrentUserLocation] = useState(userLocation);
   const [showShopsList, setShowShopsList] = useState(false);
-  const [lastClickTime, setLastClickTime] = useState(0);
+  const [mapKey, setMapKey] = useState(0); // Force re-render if needed
 
-  // Load Leaflet dynamically
+  // Load Leaflet dynamically with improved loading logic
   useEffect(() => {
-    if (window.L) {
-      setLeafletLoaded(true);
-      return;
-    }
-
-    const loadScript = (src) => {
-      return new Promise((resolve, reject) => {
-        const script = document.createElement('script');
-        script.src = src;
-        script.onload = resolve;
-        script.onerror = reject;
-        document.head.appendChild(script);
-      });
-    };
-
-    const loadCSS = (href) => {
-      const link = document.createElement('link');
-      link.rel = 'stylesheet';
-      link.href = href;
-      document.head.appendChild(link);
-    };
-
     const loadLeaflet = async () => {
-      try {
-        loadCSS('https://unpkg.com/leaflet@1.9.4/dist/leaflet.css');
-        await loadScript('https://unpkg.com/leaflet@1.9.4/dist/leaflet.js');
+      // If Leaflet is already loaded, mark as ready
+      if (window.L && window.L.map) {
+        console.log('Leaflet already loaded');
         setLeafletLoaded(true);
+        return;
+      }
+
+      try {
+        console.log('Loading Leaflet library...');
+        
+        // Load CSS first and wait for it
+        if (!document.querySelector('link[href*="leaflet"]')) {
+          const link = document.createElement('link');
+          link.rel = 'stylesheet';
+          link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+          
+          await new Promise((resolve, reject) => {
+            link.onload = resolve;
+            link.onerror = reject;
+            document.head.appendChild(link);
+          });
+          
+          console.log('Leaflet CSS loaded');
+          
+          // Enhanced CSS to force full map visibility and fix common display issues
+          const style = document.createElement('style');
+          style.textContent = `
+            .leaflet-container {
+              background: #f8f9fa !important;
+              width: 100% !important;
+              height: 100% !important;
+              z-index: 1 !important;
+              position: relative !important;
+              outline: none !important;
+              font-family: 'Helvetica Neue', Arial, Helvetica, sans-serif !important;
+            }
+            .leaflet-tile-pane {
+              opacity: 1 !important;
+              filter: brightness(1) contrast(1.05) saturate(1.1) !important;
+              transform: translate3d(0px, 0px, 0px) !important;
+              will-change: transform !important;
+            }
+            .leaflet-tile {
+              opacity: 1 !important;
+              filter: none !important;
+              visibility: visible !important;
+              display: block !important;
+              image-rendering: -webkit-optimize-contrast !important;
+              image-rendering: crisp-edges !important;
+              backface-visibility: hidden !important;
+              transform: translateZ(0) !important;
+              transition: opacity 0.2s !important;
+            }
+            .leaflet-tile-container {
+              opacity: 1 !important;
+              visibility: visible !important;
+              overflow: visible !important;
+            }
+            .leaflet-layer {
+              opacity: 1 !important;
+              position: relative !important;
+            }
+            .leaflet-control-zoom {
+              background: rgba(255,255,255,0.9) !important;
+              border-radius: 6px !important;
+              box-shadow: 0 2px 8px rgba(0,0,0,0.15) !important;
+              backdrop-filter: blur(10px) !important;
+            }
+            .leaflet-control-zoom a {
+              background-color: transparent !important;
+              color: #333 !important;
+              opacity: 1 !important;
+              width: 30px !important;
+              height: 30px !important;
+              line-height: 30px !important;
+              text-align: center !important;
+              text-decoration: none !important;
+              font-size: 18px !important;
+              font-weight: bold !important;
+              border: none !important;
+              display: block !important;
+            }
+            .leaflet-control-zoom a:hover {
+              background-color: rgba(0,0,0,0.05) !important;
+              color: #000 !important;
+            }
+            .leaflet-control-zoom a:first-child {
+              border-top-left-radius: 6px !important;
+              border-top-right-radius: 6px !important;
+            }
+            .leaflet-control-zoom a:last-child {
+              border-bottom-left-radius: 6px !important;
+              border-bottom-right-radius: 6px !important;
+            }
+            .leaflet-map-pane {
+              opacity: 1 !important;
+              transform: translate3d(0px, 0px, 0px) !important;
+            }
+            .leaflet-proxy {
+              opacity: 1 !important;
+            }
+            .leaflet-control-container {
+              opacity: 1 !important;
+            }
+            .leaflet-control-attribution {
+              background: rgba(255,255,255,0.8) !important;
+              color: #666 !important;
+              font-size: 11px !important;
+              padding: 2px 5px !important;
+              border-radius: 3px !important;
+              backdrop-filter: blur(5px) !important;
+            }
+            /* Fix for tile loading issues */
+            .leaflet-tile-loaded {
+              opacity: 1 !important;
+              animation: fadeIn 0.2s ease-in !important;
+            }
+            @keyframes fadeIn {
+              from { opacity: 0; }
+              to { opacity: 1; }
+            }
+            /* Enhanced marker visibility */
+            .leaflet-marker-icon {
+              opacity: 1 !important;
+              filter: drop-shadow(2px 2px 6px rgba(0,0,0,0.4)) !important;
+              transform: translateZ(0) !important;
+              will-change: transform !important;
+            }
+            .leaflet-marker-shadow {
+              opacity: 0.6 !important;
+            }
+            .leaflet-popup {
+              opacity: 1 !important;
+              z-index: 1000 !important;
+            }
+            .leaflet-popup-content-wrapper {
+              opacity: 1 !important;
+              background: rgba(255,255,255,0.98) !important;
+              backdrop-filter: blur(10px) !important;
+              border-radius: 8px !important;
+              box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
+              border: 1px solid rgba(0,0,0,0.1) !important;
+            }
+            .leaflet-popup-tip {
+              background: rgba(255,255,255,0.98) !important;
+              border: 1px solid rgba(0,0,0,0.1) !important;
+              border-top: none !important;
+              border-right: none !important;
+            }
+            /* Fix for fade animations that might cause missing tiles */
+            .leaflet-fade-anim .leaflet-tile {
+              transition: opacity 0.2s linear !important;
+            }
+            .leaflet-zoom-anim .leaflet-tile {
+              transition: none !important;
+            }
+            /* Ensure tiles load properly on different zoom levels */
+            .leaflet-tile[src*="openstreetmap"] {
+              opacity: 1 !important;
+              max-width: none !important;
+              max-height: none !important;
+            }
+            /* Force all tiles to be visible */
+            .leaflet-tile-pane img {
+              opacity: 1 !important;
+              visibility: visible !important;
+              display: block !important;
+            }
+            /* Fix for any clipping issues */
+            .leaflet-container * {
+              box-sizing: border-box !important;
+            }
+            /* Ensure proper tile grid display */
+            .leaflet-grid-label {
+              opacity: 1 !important;
+            }
+            /* Fix potential transform issues */
+            .leaflet-zoom-animated {
+              transform: none !important;
+            }
+            /* Emergency CSS reset for any overrides */
+            .leaflet-container img.leaflet-tile {
+              width: 256px !important;
+              height: 256px !important;
+              opacity: 1 !important;
+              visibility: visible !important;
+              display: block !important;
+              position: absolute !important;
+            }
+          `;
+          document.head.appendChild(style);
+        }
+
+        // Load JavaScript and wait for it
+        if (!document.querySelector('script[src*="leaflet"]')) {
+          const script = document.createElement('script');
+          script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+          
+          await new Promise((resolve, reject) => {
+            script.onload = resolve;
+            script.onerror = reject;
+            document.head.appendChild(script);
+          });
+          
+          console.log('Leaflet JS loaded');
+        }
+
+        // Wait a bit more to ensure everything is properly initialized
+        await new Promise(resolve => setTimeout(resolve, 200));
+        
+        // Verify Leaflet is actually available
+        if (window.L && window.L.map) {
+          console.log('Leaflet fully loaded and ready');
+          setLeafletLoaded(true);
+        } else {
+          throw new Error('Leaflet failed to initialize properly');
+        }
+        
       } catch (error) {
         console.error('Failed to load Leaflet:', error);
+        // Retry after 1 second
+        setTimeout(() => {
+          console.log('Retrying Leaflet load...');
+          loadLeaflet();
+        }, 1000);
       }
     };
 
     loadLeaflet();
   }, []);
 
-  // Initialize map
+  // Add ResizeObserver to handle container size changes
   useEffect(() => {
-    if (!leafletLoaded || !mapContainerRef.current || mapInstanceRef.current) {
-      return;
-    }
+    if (!mapContainerRef.current || !mapInstanceRef.current) return;
 
-    try {
-      const L = window.L;
-      
-      // Determine map center
-      let mapCenter = [12.9716, 77.5946]; // Default to Bangalore
-      let mapZoom = 10;
+    const resizeObserver = new ResizeObserver((entries) => {
+      console.log('Container size changed, refreshing map');
+      if (mapInstanceRef.current) {
+        setTimeout(() => {
+          mapInstanceRef.current.invalidateSize({ animate: false });
+        }, 100);
+      }
+    });
 
-      if (currentUserLocation) {
-        mapCenter = [currentUserLocation.lat, currentUserLocation.lng];
-        mapZoom = 12;
-      } else if (shops.length > 0) {
-        const avgLat = shops.reduce((sum, shop) => sum + shop.lat, 0) / shops.length;
-        const avgLng = shops.reduce((sum, shop) => sum + shop.lng, 0) / shops.length;
-        mapCenter = [avgLat, avgLng];
-        mapZoom = 11;
+    resizeObserver.observe(mapContainerRef.current);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, [mapInstanceRef.current]);
+
+  // Initialize map with improved timing and validation
+  useEffect(() => {
+    const initializeMap = async () => {
+      // Ensure all prerequisites are met
+      if (!leafletLoaded || !mapContainerRef.current || mapInstanceRef.current) {
+        console.log('Map initialization skipped:', { leafletLoaded, hasContainer: !!mapContainerRef.current, hasInstance: !!mapInstanceRef.current });
+        return;
       }
 
-      const map = L.map(mapContainerRef.current, {
-        center: mapCenter,
-        zoom: mapZoom,
-        zoomControl: true
-      });
+      if (!window.L || !window.L.map) {
+        console.error('Leaflet not properly loaded');
+        return;
+      }
 
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap contributors',
-        maxZoom: 19
-      }).addTo(map);
+      try {
+        console.log('Initializing map...');
+        const L = window.L;
+        
+        // Enhanced container readiness check with timeout
+        await new Promise((resolve, reject) => {
+          let attempts = 0;
+          const maxAttempts = 50; // 5 seconds max wait
+          
+          const checkContainer = () => {
+            attempts++;
+            const container = mapContainerRef.current;
+            
+            if (container && container.offsetHeight > 0 && container.offsetWidth > 0) {
+              console.log(`Container ready after ${attempts} attempts:`, {
+                width: container.offsetWidth,
+                height: container.offsetHeight
+              });
+              resolve();
+            } else if (attempts >= maxAttempts) {
+              console.warn('Container not ready after max attempts, proceeding anyway');
+              resolve(); // Proceed anyway
+            } else {
+              setTimeout(checkContainer, 100);
+            }
+          };
+          checkContainer();
+        });
+        
+        // Default center - Bangalore
+        let center = [12.9716, 77.5946];
+        let zoom = 10;
 
-      mapInstanceRef.current = map;
-      setMapReady(true);
+        // Use user location if available
+        if (currentUserLocation) {
+          center = [currentUserLocation.lat, currentUserLocation.lng];
+          zoom = 12;
+          console.log('Using user location for map center:', center);
+        } else if (shops.length > 0) {
+          // Center on shops
+          const validShops = shops.filter(shop => shop.lat && shop.lng);
+          if (validShops.length > 0) {
+            const avgLat = validShops.reduce((sum, shop) => sum + shop.lat, 0) / validShops.length;
+            const avgLng = validShops.reduce((sum, shop) => sum + shop.lng, 0) / validShops.length;
+            center = [avgLat, avgLng];
+            zoom = 11;
+            console.log('Using shops center for map:', center);
+          }
+        }
 
-      // Handle map clicks for location setting
-      map.on('click', handleMapClick);
+        console.log('Creating map with center:', center, 'zoom:', zoom);
+        const map = L.map(mapContainerRef.current, {
+          center: center,
+          zoom: zoom,
+          preferCanvas: false,
+          zoomControl: true,
+          attributionControl: true,
+          fadeAnimation: false,
+          zoomAnimation: true,
+          markerZoomAnimation: true,
+          inertia: true,
+          worldCopyJump: false,
+          maxBoundsViscosity: 0.0
+        });
 
-      return () => {
+        // Enhanced tile layer configuration for better visibility and faster loading
+        const tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '© OpenStreetMap contributors',
+          maxZoom: 19,
+          minZoom: 1,
+          opacity: 1.0,
+          crossOrigin: true,
+          errorTileUrl: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjU2IiBoZWlnaHQ9IjI1NiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjBmMGYwIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBCMLZXJ0YWgsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIwLjNlbSI+VGlsZSBOb3QgRm91bmQ8L3RleHQ+PC9zdmc+',
+          detectRetina: true,
+          updateWhenIdle: false,
+          updateWhenZooming: false,
+          keepBuffer: 3,
+          tileSize: 256,
+          subdomains: 'abc',
+          noWrap: false,
+          continuousWorld: false,
+          reuseTiles: true
+        });
+
+        // Add tile layer with aggressive loading strategy
+        tileLayer.addTo(map);
+        
+        // Enhanced tile loading with multiple strategies
+        await new Promise(resolve => {
+          let tilesLoaded = false;
+          let loadingComplete = false;
+          
+          const completeLoading = () => {
+            if (!loadingComplete) {
+              loadingComplete = true;
+              console.log('Tile loading completed');
+              resolve();
+            }
+          };
+          
+          tileLayer.on('loading', () => {
+            console.log('Tiles loading started...');
+          });
+          
+          tileLayer.on('load', () => {
+            console.log('Tiles loaded successfully');
+            tilesLoaded = true;
+            setTimeout(completeLoading, 200); // Small delay to ensure all tiles settle
+          });
+          
+          tileLayer.on('tileerror', (error) => {
+            console.warn('Tile error:', error);
+            // Don't fail on individual tile errors
+          });
+          
+          // Aggressive fallback timeout
+          setTimeout(() => {
+            if (!tilesLoaded) {
+              console.log('Forcing tile load completion due to timeout');
+            }
+            completeLoading();
+          }, 2000);
+        });
+
+        // Store map instance
+        mapInstanceRef.current = map;
+        console.log('Map instance created and stored');
+
+        // Force map to refresh and ensure tiles are fully loaded - enhanced timing and methods
+        const refreshMap = (attempt = 1) => {
+          try {
+            if (map && mapContainerRef.current) {
+              console.log(`Refreshing map size and tiles (attempt ${attempt})`);
+              
+              // Force container size recalculation
+              const container = mapContainerRef.current;
+              if (container.offsetWidth > 0 && container.offsetHeight > 0) {
+                map.invalidateSize({ debounceMoveend: true, pan: false });
+                
+                // Force redraw of tile layer
+                if (tileLayer) {
+                  tileLayer.redraw();
+                }
+                
+                // Ensure all tiles are properly loaded
+                map.eachLayer((layer) => {
+                  if (layer.redraw && typeof layer.redraw === 'function') {
+                    layer.redraw();
+                  }
+                });
+                
+                console.log('Map refresh completed successfully');
+              } else if (attempt < 5) {
+                // Retry if container not ready
+                setTimeout(() => refreshMap(attempt + 1), 100 * attempt);
+              }
+            }
+          } catch (error) {
+            console.warn('Error refreshing map:', error);
+          }
+        };
+
+        // Multiple refresh attempts with progressive timing
+        [50, 150, 400, 800, 1500, 3000].forEach((delay, index) => {
+          setTimeout(() => refreshMap(index + 1), delay);
+        });
+
+        // Add click handler for location setting
+        map.on('click', (e) => {
+          console.log('Map clicked at:', e.latlng);
+          setCurrentUserLocation({ lat: e.latlng.lat, lng: e.latlng.lng });
+        });
+
+        // Final comprehensive refresh after all initialization
+        setTimeout(() => {
+          try {
+            console.log('Performing final map refresh and validation');
+            if (map && mapContainerRef.current) {
+              // Force one final refresh
+              map.invalidateSize({ animate: false, pan: false });
+              
+              // Ensure all layers are properly displayed
+              map.eachLayer((layer) => {
+                if (layer.redraw) layer.redraw();
+              });
+              
+              // Force tile layer refresh
+              if (tileLayer) {
+                tileLayer.redraw();
+                // Force reload tiles if necessary
+                tileLayer._reset();
+                tileLayer._update();
+              }
+              
+              console.log('Final map refresh completed');
+            }
+          } catch (error) {
+            console.warn('Final refresh error:', error);
+          }
+        }, 4000);
+
+        console.log('Map initialization completed successfully');
+
+      } catch (error) {
+        console.error('Error initializing map:', error);
+        // Clean up on error
         if (mapInstanceRef.current) {
           try {
             mapInstanceRef.current.remove();
           } catch (e) {
-            console.warn('Map cleanup warning:', e);
+            console.warn('Error cleaning up map:', e);
           }
           mapInstanceRef.current = null;
         }
-      };
-    } catch (error) {
-      console.error('Error initializing map:', error);
-    }
-  }, [leafletLoaded]);
+      }
+    };
 
-  // Enhanced map click handler with visual feedback and location updates
-  const handleMapClick = (event) => {
-    const { lat, lng } = event.latlng;
-    const newLocation = { lat, lng };
-    const currentTime = Date.now();
-    
-    // Prevent rapid clicking
-    if (currentTime - lastClickTime < 500) return;
-    setLastClickTime(currentTime);
-    
-    setCurrentUserLocation(newLocation);
-    
-    // Provide visual feedback with ripple effect
-    if (window.L && mapInstanceRef.current) {
-      const L = window.L;
-      
-      // Create expanding circle animation
-      const ripple = L.circle([lat, lng], {
-        radius: 0,
-        fillColor: '#059669',
-        color: '#059669',
-        weight: 3,
-        opacity: 1,
-        fillOpacity: 0.3
-      }).addTo(mapInstanceRef.current);
-      
-      // Animate the ripple expansion
-      let radius = 0;
-      const maxRadius = 200;
-      const animate = () => {
-        radius += 20;
-        if (radius <= maxRadius) {
-          ripple.setRadius(radius);
-          ripple.setStyle({
-            opacity: 1 - (radius / maxRadius),
-            fillOpacity: 0.3 - (0.3 * radius / maxRadius)
-          });
-          requestAnimationFrame(animate);
-        } else {
-          mapInstanceRef.current.removeLayer(ripple);
-        }
-      };
-      animate();
-      
-      // Show notification
-      showLocationUpdateNotification(lat, lng);
-    }
-  };
+    initializeMap();
+  }, [leafletLoaded, currentUserLocation, shops]);
 
-  // Show location update notification
-  const showLocationUpdateNotification = (lat, lng) => {
-    const notification = document.createElement('div');
-    notification.style.cssText = `
-      position: fixed;
-      top: 20px;
-      right: 20px;
-      background: #059669;
-      color: white;
-      padding: 12px 16px;
-      border-radius: 8px;
-      font-size: 14px;
-      font-weight: 500;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-      z-index: 10000;
-      transform: translateX(100%);
-      transition: transform 0.3s ease;
-    `;
-    notification.innerHTML = `📍 Location Updated<br><small>Lat: ${lat.toFixed(4)}, Lng: ${lng.toFixed(4)}</small>`;
-    
-    document.body.appendChild(notification);
-    
-    // Slide in
-    setTimeout(() => {
-      notification.style.transform = 'translateX(0)';
-    }, 100);
-    
-    // Slide out and remove
-    setTimeout(() => {
-      notification.style.transform = 'translateX(100%)';
-      setTimeout(() => {
-        if (notification.parentNode) {
-          notification.parentNode.removeChild(notification);
-        }
-      }, 300);
-    }, 3000);
-  };
-
-  // Add shop markers
-  const addShopMarkers = () => {
-    if (!mapInstanceRef.current || !window.L) return;
-
-    const L = window.L;
-    
-    shops.forEach(shop => {
-      const marker = L.marker([shop.lat, shop.lng], {
-        icon: L.icon({
-          iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
-          shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
-          iconSize: [25, 41],
-          iconAnchor: [12, 41],
-          popupAnchor: [1, -34],
-          shadowSize: [41, 41]
-        })
-      }).addTo(mapInstanceRef.current);
-
-      const popupContent = `
-        <div style="text-align: center; font-family: Arial, sans-serif;">
-          <h3 style="margin: 0 0 8px 0; color: #1f2937;">${shop.name}</h3>
-          <p style="margin: 4px 0; color: #6b7280; font-size: 12px;">
-            📍 ${shop.address}
-          </p>
-          <p style="margin: 4px 0; color: #6b7280; font-size: 12px;">
-            📦 ${shop.productCount} item${shop.productCount !== 1 ? 's' : ''} available
-          </p>
-          ${currentUserLocation ? `
-            <p style="margin: 4px 0; color: #059669; font-size: 12px;">
-              🚗 ${calculateDistance(currentUserLocation.lat, currentUserLocation.lng, shop.lat, shop.lng).toFixed(2)} km away
-            </p>
-            <button onclick="window.open('https://www.google.com/maps/dir/${currentUserLocation.lat},${currentUserLocation.lng}/${shop.lat},${shop.lng}', '_blank')" 
-                    style="margin-top: 8px; padding: 6px 12px; background: #1d4ed8; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 500;">
-              🗺️ Get Directions
-            </button>
-          ` : `
-            <p style="margin: 8px 0; color: #dc2626; font-size: 11px; font-weight: 500;">
-              📍 Set your location to get directions
-            </p>
-          `}
-        </div>
-      `;
-      
-      marker.bindPopup(popupContent);
-      shopMarkersRef.current.push(marker);
-    });
-  };
-
-  // Clear existing shop markers
-  const clearShopMarkers = () => {
-    try {
-      shopMarkersRef.current.forEach(marker => {
-        if (mapInstanceRef.current && marker) {
-          try {
-            mapInstanceRef.current.removeLayer(marker);
-          } catch (e) {
-            console.warn('Could not remove shop marker:', e);
-          }
-        }
-      });
-      shopMarkersRef.current = [];
-    } catch (error) {
-      console.warn('Error clearing shop markers:', error);
-    }
-  };
-
-  // Update shop markers when shops change
+  // Update current user location when prop changes
   useEffect(() => {
-    if (mapReady && shops.length > 0) {
-      clearShopMarkers();
-      addShopMarkers();
+    if (userLocation && (userLocation.lat !== currentUserLocation?.lat || userLocation.lng !== currentUserLocation?.lng)) {
+      setCurrentUserLocation(userLocation);
     }
-  }, [mapReady, shops, currentUserLocation]);
+  }, [userLocation, currentUserLocation]);
 
-  // Add or update user location marker
-  const updateUserLocationMarker = () => {
-    if (!mapInstanceRef.current || !currentUserLocation || !window.L) return;
+  // Add/update markers when shops or user location changes
+  useEffect(() => {
+    if (!mapInstanceRef.current || !window.L) {
+      console.log('Markers update skipped: map not ready');
+      return;
+    }
 
     const L = window.L;
+    const map = mapInstanceRef.current;
 
-    // Remove existing user location marker
-    if (userLocationMarkerRef.current) {
+    console.log('Updating markers...', { shops: shops.length, userLocation: !!currentUserLocation });
+
+    // Clear existing markers
+    markersRef.current.forEach(marker => {
       try {
-        mapInstanceRef.current.removeLayer(userLocationMarkerRef.current);
+        map.removeLayer(marker);
       } catch (e) {
-        console.warn('Could not remove user marker:', e);
+        console.warn('Could not remove marker:', e);
+      }
+    });
+    markersRef.current = [];
+
+    // Add user location marker if available
+    if (currentUserLocation) {
+      try {
+        const userMarker = L.marker([currentUserLocation.lat, currentUserLocation.lng], {
+          icon: L.icon({
+            iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
+            shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+            iconSize: [25, 41],
+            iconAnchor: [12, 41],
+            popupAnchor: [1, -34],
+            shadowSize: [41, 41]
+          })
+        }).addTo(map);
+
+        userMarker.bindPopup(`
+          <div style="text-align: center;">
+            <h4 style="margin: 0 0 8px 0; color: #dc2626;">📍 Your Location</h4>
+            <p style="margin: 0; color: #666; font-size: 12px;">
+              Click anywhere on map to update
+            </p>
+          </div>
+        `);
+
+        markersRef.current.push(userMarker);
+        console.log('User location marker added');
+      } catch (error) {
+        console.warn('Could not add user marker:', error);
       }
     }
 
-    // Add new user location marker with enhanced interactivity
-    try {
-      userLocationMarkerRef.current = L.marker([currentUserLocation.lat, currentUserLocation.lng], {
-        icon: L.icon({
-          iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
-          shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
-          iconSize: [25, 41],
-          iconAnchor: [12, 41],
-          popupAnchor: [1, -34],
-          shadowSize: [41, 41]
-        }),
-        draggable: true // Make the marker draggable
-      }).addTo(mapInstanceRef.current);
+    // Add shop markers
+    shops.forEach((shop, index) => {
+      if (!shop.lat || !shop.lng) {
+        console.warn('Shop missing coordinates:', shop.name);
+        return;
+      }
 
-      // Handle marker drag to update location
-      userLocationMarkerRef.current.on('dragend', (e) => {
-        const newPos = e.target.getLatLng();
-        const newLocation = { lat: newPos.lat, lng: newPos.lng };
-        setCurrentUserLocation(newLocation);
-        showLocationUpdateNotification(newPos.lat, newPos.lng);
-      });
+      try {
+        const marker = L.marker([shop.lat, shop.lng]).addTo(map);
+        
+        const itemCount = shop.productCount || shop.products?.length || 0;
+        const availabilityColor = itemCount > 3 ? '#059669' : itemCount > 0 ? '#f59e0b' : '#dc2626';
+        const availabilityText = itemCount > 3 ? 'High Stock' : itemCount > 0 ? 'Limited Stock' : 'Out of Stock';
+        
+        // Create dynamic popup content function for this shop
+        const createShopPopupContent = () => {
+          const distance = currentUserLocation ? 
+            calculateDistance(currentUserLocation.lat, currentUserLocation.lng, shop.lat, shop.lng) : null;
+          
+          // Check which selected parts are available at this shop
+          const availableSelectedParts = selectedParts.filter(part => 
+            shop.products && shop.products.some(product => product._id === part._id)
+          );
 
-      userLocationMarkerRef.current.bindPopup(`
-        <div style="text-align: center; font-family: Arial, sans-serif;">
-          <h4 style="margin: 0 0 8px 0; color: #dc2626;">📍 Your Location</h4>
-          <p style="margin: 4px 0; color: #6b7280; font-size: 12px;">
-            Lat: ${currentUserLocation.lat.toFixed(6)}<br>
-            Lng: ${currentUserLocation.lng.toFixed(6)}
-          </p>
-          <p style="margin: 8px 0 4px 0; color: #059669; font-size: 11px;">
-            💡 Drag me to update location<br>
-            or tap elsewhere on map
-          </p>
-        </div>
-      `);
+          return `
+            <div style="text-align: center; font-family: Arial, sans-serif; min-width: 200px;">
+              <h3 style="margin: 0 0 8px 0; color: #1f2937; font-size: 14px;">${shop.name}</h3>
+              <div style="background: #f8fafc; padding: 8px; border-radius: 6px; margin: 8px 0;">
+                <p style="margin: 2px 0; color: #6b7280; font-size: 11px;">
+                  📍 ${shop.address || 'Address not available'}
+                </p>
+                <div style="display: flex; align-items: center; justify-content: center; margin: 4px 0;">
+                  <span style="color: ${availabilityColor}; font-weight: 600; font-size: 11px;">
+                    ●
+                  </span>
+                  <span style="margin-left: 4px; color: ${availabilityColor}; font-size: 11px; font-weight: 500;">
+                    ${availabilityText}
+                  </span>
+                  <span style="margin-left: 4px; color: #6b7280; font-size: 11px;">
+                    (${itemCount} items)
+                  </span>
+                </div>
+                ${availableSelectedParts.length > 0 && showShopInfo ? `
+                  <div style="background: #ecfdf5; padding: 6px; border-radius: 4px; margin: 6px 0; border-left: 3px solid #10b981;">
+                    <p style="margin: 0 0 3px 0; color: #059669; font-size: 10px; font-weight: 600;">
+                      ✅ Has ${availableSelectedParts.length} of your selected parts:
+                    </p>
+                    <p style="margin: 0; color: #047857; font-size: 9px; line-height: 1.2;">
+                      ${availableSelectedParts.map(part => part.name).join(', ').substring(0, 80)}${availableSelectedParts.map(part => part.name).join(', ').length > 80 ? '...' : ''}
+                    </p>
+                  </div>
+                ` : ''}
+              </div>
+              ${distance ? `
+                <div style="background: #ecfdf5; padding: 6px; border-radius: 4px; margin: 8px 0;">
+                  <p style="margin: 0; color: #059669; font-size: 11px; font-weight: 500;">
+                    🚗 ${distance.toFixed(2)} km away
+                  </p>
+                </div>
+              ` : ''}
+              <div style="margin-top: 8px; display: flex; gap: 4px; justify-content: center; flex-wrap: wrap;">
+                <button onclick="window.open('https://www.google.com/maps?q=${shop.lat},${shop.lng}', '_blank')" 
+                        style="padding: 6px 12px; background: #059669; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                  🗺️ View Location
+                </button>
+                ${currentUserLocation ? `
+                  <button onclick="window.open('https://www.google.com/maps/dir/${currentUserLocation.lat},${currentUserLocation.lng}/${shop.lat},${shop.lng}', '_blank')" 
+                          style="padding: 6px 12px; background: linear-gradient(135deg, #1d4ed8, #3b82f6); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                    🧭 Get Directions
+                  </button>
+                ` : `
+                  <button onclick="alert('Please set your location first by clicking anywhere on the map or using the GPS button')" 
+                          style="padding: 6px 12px; background: #6b7280; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                    🧭 Set Location First
+                  </button>
+                `}
+              </div>
+            </div>
+          `;
+        };
+        
+        // Use dynamic popup that updates when clicked
+        marker.on('click', () => {
+          marker.setPopupContent(createShopPopupContent());
+        });
+        
+        // Set initial popup content
+        marker.bindPopup(createShopPopupContent());
+        markersRef.current.push(marker);
+        console.log(`Shop marker added: ${shop.name} (${index + 1}/${shops.length})`);
+      } catch (error) {
+        console.warn('Could not add shop marker:', shop.name, error);
+      }
+    });
 
-      // Center map on user location
-      mapInstanceRef.current.setView([currentUserLocation.lat, currentUserLocation.lng], 13);
-    } catch (error) {
-      console.error('Error adding user location marker:', error);
-    }
-  };
+    console.log(`Total markers added: ${markersRef.current.length}`);
 
-  // Update user location marker when location changes
+  }, [shops, currentUserLocation]);
+
+  // Cleanup effect
   useEffect(() => {
-    if (mapReady && currentUserLocation) {
-      updateUserLocationMarker();
-      // Refresh shop markers to update distances
-      if (shops.length > 0) {
-        clearShopMarkers();
-        addShopMarkers();
+    return () => {
+      console.log('Cleaning up ProductMap');
+      // Clear markers
+      if (markersRef.current.length > 0) {
+        markersRef.current.forEach(marker => {
+          try {
+            if (mapInstanceRef.current) {
+              mapInstanceRef.current.removeLayer(marker);
+            }
+          } catch (e) {
+            console.warn('Could not remove marker during cleanup:', e);
+          }
+        });
+        markersRef.current = [];
       }
-    }
-  }, [mapReady, currentUserLocation]);
-
-  // Get current GPS location
+      
+      // Remove map instance
+      if (mapInstanceRef.current) {
+        try {
+          mapInstanceRef.current.remove();
+          console.log('Map instance removed');
+        } catch (e) {
+          console.warn('Error removing map:', e);
+        }
+        mapInstanceRef.current = null;
+      }
+    };
+  }, []);  // Get current GPS location
   const getCurrentLocation = () => {
     if (!navigator.geolocation) {
       alert('Geolocation is not supported by this browser.');
@@ -343,27 +700,22 @@ const ProductMap = ({ shops = [], userLocation = null }) => {
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        const newLocation = {
+        setCurrentUserLocation({
           lat: position.coords.latitude,
           lng: position.coords.longitude
-        };
-        setCurrentUserLocation(newLocation);
+        });
       },
       (error) => {
         console.error('Geolocation error:', error);
-        alert('Unable to retrieve your location. Please click on the map to set your location manually.');
+        alert('Unable to get your location. Click on the map to set it manually.');
       },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 300000
-      }
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
     );
   };
 
   // Calculate distance between two points
   const calculateDistance = (lat1, lng1, lat2, lng2) => {
-    const R = 6371; // Earth's radius in kilometers
+    const R = 6371;
     const dLat = (lat2 - lat1) * Math.PI / 180;
     const dLng = (lng2 - lng1) * Math.PI / 180;
     const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
@@ -373,39 +725,25 @@ const ProductMap = ({ shops = [], userLocation = null }) => {
     return R * c;
   };
 
-  // Sort shops by distance from user location
+  // Get sorted shops by distance
   const getSortedShops = () => {
     if (!currentUserLocation) return shops;
-    
     return [...shops].sort((a, b) => {
-      const distanceA = calculateDistance(currentUserLocation.lat, currentUserLocation.lng, a.lat, a.lng);
-      const distanceB = calculateDistance(currentUserLocation.lat, currentUserLocation.lng, b.lat, b.lng);
-      return distanceA - distanceB;
+      const distA = calculateDistance(currentUserLocation.lat, currentUserLocation.lng, a.lat, a.lng);
+      const distB = calculateDistance(currentUserLocation.lat, currentUserLocation.lng, b.lat, b.lng);
+      return distA - distB;
     });
-  };
-
-  // Handle directions button click
-  const handleDirections = (shop) => {
-    if (!currentUserLocation) {
-      alert('Please set your location first by clicking on the map or using GPS.');
-      return;
-    }
-
-    if (window.confirm(`Open Google Maps for directions to ${shop.name}?`)) {
-      const url = `https://www.google.com/maps/dir/${currentUserLocation.lat},${currentUserLocation.lng}/${shop.lat},${shop.lng}`;
-      window.open(url, '_blank');
-    }
   };
 
   if (!leafletLoaded) {
     return (
       <div style={{ 
+        height: '400px', 
         display: 'flex', 
-        justifyContent: 'center', 
         alignItems: 'center', 
-        height: '400px',
+        justifyContent: 'center',
         background: '#f8fafc',
-        borderRadius: '12px',
+        borderRadius: '8px',
         border: '1px solid #e5e7eb'
       }}>
         <div style={{ textAlign: 'center', color: '#6b7280' }}>
@@ -420,61 +758,102 @@ const ProductMap = ({ shops = [], userLocation = null }) => {
     <div style={{
       background: '#fff',
       border: '1px solid #e5e7eb',
-      borderRadius: '12px',
+      borderRadius: '8px',
       overflow: 'hidden',
-      boxShadow: '0 6px 18px rgba(2,6,23,.06)'
+      height: '100%',
+      display: 'flex',
+      flexDirection: 'column'
     }}>
       {/* Header */}
       <div style={{
-        padding: '1rem',
+        padding: '0.75rem 1rem',
         borderBottom: '1px solid #e5e7eb',
         background: '#f8fafc',
         display: 'flex',
         justifyContent: 'space-between',
-        alignItems: 'center'
+        alignItems: 'center',
+        flexShrink: 0
       }}>
         <div>
-          <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#1e293b' }}>
-            🗺️ Shop Locations for Available Parts
+          <h3 style={{ margin: 0, fontSize: '1rem', color: '#1e293b' }}>
+            🗺️ Shop Locations ({shops.length} found)
+            {selectedParts.length > 0 && (
+              <span style={{ 
+                marginLeft: '8px',
+                background: '#3b82f6', 
+                color: 'white', 
+                padding: '2px 8px', 
+                borderRadius: '12px', 
+                fontSize: '0.75rem' 
+              }}>
+                {selectedParts.length} parts selected
+              </span>
+            )}
           </h3>
-          <p style={{ margin: '4px 0 0', fontSize: '0.9rem', color: '#64748b' }}>
-            {currentUserLocation 
-              ? 'Tap anywhere on map or drag red marker to update location' 
-              : 'Tap on the map to set your location or use GPS'
+          <p style={{ margin: '4px 0 0', fontSize: '0.85rem', color: '#64748b' }}>
+            {selectedParts.length > 0 && showShopInfo 
+              ? `Showing shops with: ${selectedParts.map(p => p.name).join(', ').substring(0, 40)}${selectedParts.map(p => p.name).join(', ').length > 40 ? '...' : ''}`
+              : currentUserLocation 
+                ? 'Click anywhere on map to update your location' 
+                : 'Click on map to set your location or use GPS'
             }
           </p>
-          {!currentUserLocation && (
-            <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: '#dc2626', fontWeight: '500' }}>
-              ⚠️ Set your location to get directions and distances
-            </p>
-          )}
         </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <div style={{ display: 'flex', gap: '6px' }}>
           <button
             onClick={getCurrentLocation}
             style={{
-              padding: '8px 12px',
+              padding: '6px 10px',
               background: '#059669',
               color: 'white',
               border: 'none',
-              borderRadius: '8px',
+              borderRadius: '6px',
               cursor: 'pointer',
-              fontSize: '0.9rem',
+              fontSize: '0.85rem',
               fontWeight: '500'
             }}
           >
             📍 Use GPS
           </button>
           <button
+            onClick={() => {
+              // Force map refresh
+              if (mapInstanceRef.current) {
+                console.log('Manual map refresh triggered');
+                setTimeout(() => {
+                  mapInstanceRef.current.invalidateSize({ animate: false });
+                  mapInstanceRef.current.eachLayer((layer) => {
+                    if (layer.redraw) layer.redraw();
+                  });
+                }, 100);
+              } else {
+                // Force complete reload
+                setMapKey(prev => prev + 1);
+              }
+            }}
+            style={{
+              padding: '6px 10px',
+              background: '#dc2626',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '0.85rem',
+              fontWeight: '500'
+            }}
+          >
+            🔄 Refresh
+          </button>
+          <button
             onClick={() => setShowShopsList(!showShopsList)}
             style={{
-              padding: '8px 12px',
+              padding: '6px 10px',
               background: showShopsList ? '#1d4ed8' : '#f3f4f6',
               color: showShopsList ? 'white' : '#374151',
               border: 'none',
-              borderRadius: '8px',
+              borderRadius: '6px',
               cursor: 'pointer',
-              fontSize: '0.9rem',
+              fontSize: '0.85rem',
               fontWeight: '500'
             }}
           >
@@ -483,104 +862,89 @@ const ProductMap = ({ shops = [], userLocation = null }) => {
         </div>
       </div>
 
-      {/* Map Container */}
-      <div style={{ height: '400px', position: 'relative' }}>
+      {/* Map */}
+      <div style={{ 
+        flex: 1, 
+        position: 'relative', 
+        overflow: 'visible',
+        minHeight: '350px',
+        width: '100%',
+        backgroundColor: '#f8f9fa'
+      }}>
         <div 
+          key={mapKey}
           ref={mapContainerRef} 
-          style={{ width: '100%', height: '100%' }}
+          style={{ 
+            width: '100%', 
+            height: '100%',
+            backgroundColor: '#f8f9fa',
+            zIndex: 1,
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            display: 'block',
+            minHeight: '350px',
+            minWidth: '100%',
+            visibility: 'visible',
+            opacity: 1
+          }} 
         />
+        {shops.length === 0 && (
+          <div style={{
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            background: 'rgba(255,255,255,0.9)',
+            padding: '20px',
+            borderRadius: '8px',
+            textAlign: 'center',
+            color: '#6b7280',
+            boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+            zIndex: 1000
+          }}>
+            <div style={{ fontSize: '1.5rem', marginBottom: '8px' }}>🔍</div>
+            <div>Looking for shops with your products...</div>
+          </div>
+        )}
       </div>
 
       {/* Shops List */}
-      {showShopsList && shops.length > 0 && (
-        <div style={{
-          borderTop: '1px solid #e5e7eb',
-          maxHeight: '300px',
-          overflow: 'auto'
-        }}>
-          <div style={{
-            padding: '1rem',
-            background: '#f8fafc',
-            borderBottom: '1px solid #e5e7eb'
-          }}>
-            <h4 style={{ margin: 0, fontSize: '1rem', color: '#1e293b' }}>
-              Available Shops ({shops.length})
-            </h4>
-            {currentUserLocation && (
-              <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: '#64748b' }}>
-                Sorted by distance from your location
-              </p>
-            )}
-          </div>
-          
-          <div style={{ padding: '0.5rem' }}>
-            {getSortedShops().map((shop, index) => (
-              <div
-                key={shop._id || index}
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
+      {showShopsList && (
+        <div style={{ borderTop: '1px solid #e5e7eb', maxHeight: '300px', overflow: 'auto' }}>
+          {shops.length > 0 ? (
+            <div style={{ padding: '0.5rem' }}>
+              {getSortedShops().map((shop, index) => (
+                <div key={shop._id || index} style={{
                   padding: '0.75rem',
                   margin: '0.5rem 0',
                   background: 'white',
                   border: '1px solid #e5e7eb',
-                  borderRadius: '8px',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
-                }}
-              >
-                <div style={{ flex: 1 }}>
-                  <h5 style={{ margin: '0 0 4px 0', fontSize: '0.9rem', color: '#1f2937' }}>
-                    {shop.name}
-                  </h5>
+                  borderRadius: '6px'
+                }}>
+                  <h5 style={{ margin: '0 0 4px 0', fontSize: '0.9rem' }}>{shop.name}</h5>
                   <p style={{ margin: '0 0 2px 0', fontSize: '0.8rem', color: '#6b7280' }}>
-                    📍 {shop.address}
+                    📍 {shop.address || 'Address not available'}
                   </p>
                   <p style={{ margin: '0', fontSize: '0.8rem', color: '#6b7280' }}>
-                    📦 {shop.productCount} item{shop.productCount !== 1 ? 's' : ''} available
+                    📦 {shop.productCount || 0} items available
                   </p>
                   {currentUserLocation && (
-                    <p style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: '#059669', fontWeight: '500' }}>
+                    <p style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: '#059669' }}>
                       🚗 {calculateDistance(currentUserLocation.lat, currentUserLocation.lng, shop.lat, shop.lng).toFixed(2)} km away
                     </p>
                   )}
                 </div>
-                
-                <button
-                  onClick={() => handleDirections(shop)}
-                  disabled={!currentUserLocation}
-                  style={{
-                    padding: '6px 12px',
-                    background: currentUserLocation ? '#1d4ed8' : '#d1d5db',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '6px',
-                    cursor: currentUserLocation ? 'pointer' : 'not-allowed',
-                    fontSize: '0.8rem',
-                    fontWeight: '500',
-                    marginLeft: '12px'
-                  }}
-                >
-                  🗺️ Directions
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* No shops message */}
-      {shops.length === 0 && (
-        <div style={{
-          padding: '2rem',
-          textAlign: 'center',
-          color: '#6b7280',
-          background: '#f9fafb'
-        }}>
-          <div style={{ fontSize: '2rem', marginBottom: '8px' }}>🏪</div>
-          <p style={{ margin: 0, fontSize: '0.9rem' }}>
-            No shops found for the selected parts
-          </p>
+              ))}
+            </div>
+          ) : (
+            <div style={{ padding: '2rem', textAlign: 'center', color: '#6b7280' }}>
+              <div style={{ fontSize: '2rem', marginBottom: '8px' }}>🏪</div>
+              <p>No shops found with selected parts</p>
+            </div>
+          )}
         </div>
       )}
     </div>

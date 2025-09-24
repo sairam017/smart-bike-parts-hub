@@ -31,6 +31,7 @@ const CartPage = () => {
 
   // New state for batch order placement
   const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
   const [collectionDate, setCollectionDate] = useState('');
   const [placing, setPlacing] = useState(false);
   const [orderMsg, setOrderMsg] = useState(null);
@@ -46,6 +47,7 @@ const CartPage = () => {
   }, [cart.items]); // Dependency on cart items
 
   const validatePhone = (p) => /^\d{10}$/.test(p); // simple 10 digit validation
+  const validateEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e); // basic email validation
   const isFutureOrToday = (dStr) => {
     if (!dStr) return false;
     const sel = new Date(dStr + 'T00:00:00');
@@ -94,17 +96,25 @@ const CartPage = () => {
     if (!user) { navigate('/auth'); return; }
     setOrderMsg(null);
     if (!cart.items.length) { setOrderMsg('Cart empty'); return; }
-    if (!validatePhone(phone)) { setOrderMsg('Enter valid 10 digit phone'); return; }
+    if (!email || !validateEmail(email)) { setOrderMsg('Enter valid email address'); return; }
+    if (phone && !validatePhone(phone)) { setOrderMsg('Enter valid 10 digit phone or leave empty'); return; }
     if (!isFutureOrToday(collectionDate)) { setOrderMsg('Select today or a future collection date'); return; }
     try {
       setPlacing(true);
       const orderItems = cart.items.map(i => ({ name: i.name, qty: i.qty || 1, price: i.price, product: i.id }));
       const shippingAddress = { address: 'Cart order' }; // minimal placeholder (could enhance with stored preferred address or geolocation)
-      const { data } = await api.post('/orders/authenticated', { orderItems, shippingAddress, paymentMethod: 'cod', phone, collectionDate });
-      setOrderMsg('Order placed. ID: ' + data._id);
+      const { data } = await api.post('/orders/authenticated', { 
+        orderItems, 
+        shippingAddress, 
+        paymentMethod: 'cod', 
+        phone, 
+        collectionDate,
+        email: email || undefined // include email if provided
+      });
+      setOrderMsg(`Order placed successfully! ID: ${data._id}. Confirmation sent to ${email}${phone ? ' and SMS to ' + phone : ''}.`);
       // Clear cart after success
       clear();
-      setTimeout(()=> navigate('/'), 800);
+      setTimeout(()=> navigate('/'), 2000);
     } catch(e){
       setOrderMsg(e.response?.data?.message || 'Order failed');
     } finally {
@@ -142,11 +152,22 @@ const CartPage = () => {
           <h3 style={{margin:0, fontSize:'1rem'}}>Place Order For All Items</h3>
           <div style={{display:'flex', flexWrap:'wrap', gap:12}}>
             <div style={{display:'flex', flexDirection:'column', gap:4}}>
-              <label style={{fontSize:12, fontWeight:600}}>Phone (10 digits)</label>
-              <input value={phone} onChange={e=> setPhone(e.target.value)} placeholder="Active phone" style={{padding:'6px 10px', border:'1px solid #cbd5e1', borderRadius:8}} maxLength={10} />
+              <label style={{fontSize:12, fontWeight:600}}>Email *</label>
+              <input 
+                type="email" 
+                value={email} 
+                onChange={e=> setEmail(e.target.value)} 
+                placeholder="your-email@example.com" 
+                style={{padding:'6px 10px', border:'1px solid #cbd5e1', borderRadius:8, minWidth:'200px'}} 
+                required
+              />
             </div>
             <div style={{display:'flex', flexDirection:'column', gap:4}}>
-              <label style={{fontSize:12, fontWeight:600}}>Collection Date</label>
+              <label style={{fontSize:12, fontWeight:600}}>Phone (optional)</label>
+              <input value={phone} onChange={e=> setPhone(e.target.value)} placeholder="10 digit phone for SMS updates" style={{padding:'6px 10px', border:'1px solid #cbd5e1', borderRadius:8}} maxLength={10} />
+            </div>
+            <div style={{display:'flex', flexDirection:'column', gap:4}}>
+              <label style={{fontSize:12, fontWeight:600}}>Collection Date *</label>
               <input type="date" value={collectionDate} onChange={e=> setCollectionDate(e.target.value)} style={{padding:'6px 10px', border:'1px solid #cbd5e1', borderRadius:8}} />
             </div>
           </div>

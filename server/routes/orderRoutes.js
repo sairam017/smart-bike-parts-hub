@@ -116,8 +116,40 @@ router.post('/confirm-sms', async (req, res) => {
 
 // Create order (original authenticated version)
 router.post('/authenticated', auth, async (req, res) => {
-  const { orderItems, shippingAddress, paymentMethod, phone, collectionDate } = req.body;
-  if (!orderItems || orderItems.length === 0) return res.status(400).json({ message: 'No order items' });
+  const { orderItems, shippingAddress, paymentMethod, phone, collectionDate, email } = req.body;
+  
+  console.log('Order request received:', {
+    userId: req.user?.id,
+    userName: req.user?.name,
+    orderItems: orderItems?.length,
+    hasShippingAddress: !!shippingAddress,
+    paymentMethod,
+    phone,
+    collectionDate,
+    email: email || 'not provided'
+  });
+
+  if (!orderItems || orderItems.length === 0) {
+    console.log('Order failed: No order items');
+    return res.status(400).json({ message: 'No order items' });
+  }
+
+  if (!email) {
+    console.log('Order failed: No email address provided');
+    return res.status(400).json({ message: 'Email address is required' });
+  }
+
+  // Validate email format
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    console.log('Order failed: Invalid email format');
+    return res.status(400).json({ message: 'Please enter a valid email address' });
+  }
+
+  if (!collectionDate) {
+    console.log('Order failed: No collection date provided');
+    return res.status(400).json({ message: 'Collection date is required' });
+  }
   // Validate and decrement stock atomically (two-phase: check then bulk update)
   try {
     const productIds = orderItems.map(i => i.product).filter(Boolean);
@@ -146,15 +178,60 @@ router.post('/authenticated', auth, async (req, res) => {
       shippingAddress,
       paymentMethod,
       phone,
-      collectionDate: collectionDate ? new Date(collectionDate) : undefined
+      collectionDate: collectionDate ? new Date(collectionDate) : undefined,
+      email: email || undefined
     });
-    // Send SMS notification
+    
+    // Send email notification (mandatory)
+    try {
+      const User = require('../models/User');
+      const sendEmail = require('../utils/sendEmail');
+      const userDoc = await User.findById(req.user.id);
+      
+      console.log('Sending email confirmation to:', email);
+      
+      const first = orderItems[0]?.name || 'item';
+      const extra = orderItems.length > 1 ? ` +${orderItems.length - 1} more` : '';
+      const when = collectionDate ? new Date(collectionDate).toLocaleDateString() : 'soon';
+      const totalAmount = orderItems.reduce((sum, item) => sum + (item.price * item.qty), 0);
+      
+      const subject = 'Order Confirmation - Smart Bike Parts Hub';
+      const text = `Hi ${userDoc?.name || 'Customer'},\n\nYour order has been confirmed!\n\nOrder ID: ${order._id}\nItems: ${first}${extra}\nCollection Date: ${when}\n${phone ? 'Phone: ' + phone + '\n' : ''}Total Amount: ₹${totalAmount}\n\nThank you for shopping with us!\n\nSmart Bike Parts Hub`;
+      const html = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
+          <h2 style="color: #1d4ed8; text-align: center;">Order Confirmation</h2>
+          <p>Hi <strong>${userDoc?.name || 'Customer'}</strong>,</p>
+          <p>Your order has been confirmed!</p>
+          <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;">
+            <p><strong>Order ID:</strong> ${order._id}</p>
+            <p><strong>Items:</strong> ${first}${extra}</p>
+            <p><strong>Collection Date:</strong> ${when}</p>
+            <p><strong>Email:</strong> ${email}</p>
+            ${phone ? '<p><strong>Phone:</strong> ' + phone + '</p>' : ''}
+            <p><strong>Total Amount:</strong> ₹${totalAmount}</p>
+          </div>
+          <p>Thank you for shopping with us!</p>
+          <p style="color: #666; text-align: center; margin-top: 30px;">Smart Bike Parts Hub</p>
+        </div>
+      `;
+      
+      await sendEmail(email, subject, text, html);
+      console.log('Email sent successfully to:', email);
+      order.emailSentAt = new Date();
+      order.emailSentTo = email;
+      await order.save();
+    } catch (e) {
+      console.error('Email sending failed:', e.message);
+      // Email failure should not block the order
+    }
+
+    // Send SMS notification (optional)
     if (phone) {
       const first = orderItems[0]?.name || 'item';
       const extra = orderItems.length > 1 ? ` +${orderItems.length - 1} more` : '';
       const when = collectionDate ? new Date(collectionDate).toLocaleDateString() : 'soon';
       try {
-        const result = await sendSMS(phone, `Your order ${order._id} (${first}${extra}) placed successfully. Pickup: ${when}.`);
+        const result = await sendSMS(phone, `Your order ${order._id} (${first}${extra}) placed successfully. Pickup: ${when}. Confirm via email sent to ${email.split('@')[0]}@***.`);
         if (result.ok) {
           order.smsSentAt = new Date();
         } else {
@@ -166,27 +243,16 @@ router.post('/authenticated', auth, async (req, res) => {
         await order.save();
       }
     }
-    // Send email notification
-    try {
-      const User = require('../models/User');
-      const sendEmail = require('../utils/sendEmail');
-      const userDoc = await User.findById(req.user.id);
-      if (userDoc && userDoc.email) {
-        const first = orderItems[0]?.name || 'item';
-        const extra = orderItems.length > 1 ? ` +${orderItems.length - 1} more` : '';
-        const when = collectionDate ? new Date(collectionDate).toLocaleDateString() : 'soon';
-        const subject = `Order Confirmation - ${order._id}`;
-        const text = `Dear ${userDoc.name},\n\nYour order (${first}${extra}) has been placed successfully.\nPickup date: ${when}.\nOrder ID: ${order._id}\nThank you for shopping with Smart Bike Parts Hub!`;
-        const html = `<p>Dear ${userDoc.name},</p><p>Your order <b>${first}${extra}</b> has been placed successfully.</p><p>Pickup date: <b>${when}</b></p><p>Order ID: <b>${order._id}</b></p><p>Thank you for shopping with <b>Smart Bike Parts Hub</b>!</p>`;
-        await sendEmail(userDoc.email, subject, text, html);
-      }
-    } catch (e) {
-      console.error('Order email failed', e);
-    }
     return res.status(201).json(order);
   } catch (e) {
-    console.error('Order create failed', e);
-    return res.status(500).json({ message: e.message });
+    console.error('Order create failed:', e);
+    console.error('Error details:', {
+      name: e.name,
+      message: e.message,
+      stack: e.stack,
+      orderData: { orderItems, shippingAddress, paymentMethod, phone, collectionDate }
+    });
+    return res.status(500).json({ message: e.message || 'Order creation failed' });
   }
 });
 

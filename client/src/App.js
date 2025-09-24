@@ -5,11 +5,13 @@ import { LocationProvider } from './context/LocationContext';
 import { CartProvider } from './context/CartContext';
 import BikePartList from './components/bikeParts/BikePartList';
 import ProductDetailPage from './components/bikeParts/ProductDetailPage';
+import MapPage from './components/maps/MapPage';
 import LandingPage from './components/landing/LandingPage';
 import AdminUsersPage from './components/admin/AdminUsersPage';
 import AdminProductsPage from './components/admin/AdminProductsPage';
 import LoginPage from './components/auth/LoginPage';
 import useAuth from './hooks/useAuth';
+import useCart from './hooks/useCart';
 import ShopsList from './components/shops/ShopsList';
 import CreateVendorPage from './components/admin/CreateVendorPage';
 import VendorDashboard from './components/vendor/VendorDashboard';
@@ -68,6 +70,7 @@ const AdminDashboard = () => {
 
 const NavBar = () => {
   const { user, logout } = useAuth();
+  const { totalItems } = useCart();
   const location = useLocation();
   const navigate = useNavigate();
   // Hide navbar on vendor dashboard for a cleaner vendor workspace
@@ -78,9 +81,33 @@ const NavBar = () => {
     location.pathname === '/login'
   ) return null;
   return (
-    <nav style={{ display:'flex', gap:'1rem', padding:'0.75rem 1rem', background:'#222', color:'#fff' }}>
+    <nav style={{ display:'flex', gap:'1rem', padding:'0.75rem 1rem', background:'#222', color:'#fff', alignItems:'center' }}>
   <Link style={{color:'#fff'}} to="/">Home</Link>
   {location.pathname !== '/parts' && <Link style={{color:'#fff'}} to="/parts">Parts</Link>}
+  {user && (
+    <Link style={{color:'#fff', position:'relative'}} to="/cart">
+      🛒 Cart
+      {totalItems > 0 && (
+        <span style={{
+          position:'absolute',
+          top:'-8px',
+          right:'-12px',
+          background:'#ef4444',
+          color:'white',
+          borderRadius:'50%',
+          fontSize:'0.7rem',
+          minWidth:'18px',
+          height:'18px',
+          display:'flex',
+          alignItems:'center',
+          justifyContent:'center',
+          fontWeight:'bold'
+        }}>
+          {totalItems}
+        </span>
+      )}
+    </Link>
+  )}
   {/* {user && <Link style={{color:'#fff'}} to="/shops">Shops</Link>} */}
   {user && <Link style={{color:'#fff'}} to="/myorders">My Orders</Link>}
       {user?.role === 'admin' && <Link style={{color:'#fff'}} to="/admin/dashboard">Admin</Link>}
@@ -102,6 +129,7 @@ function App() {
             <Route path="/" element={<LandingPage />} />
             <Route path="/parts" element={<BikePartList />} />
             <Route path="/product/:id" element={<ProductDetailPage />} />
+            <Route path="/maps" element={<RequireAuth><MapPage /></RequireAuth>} />
             {/* <Route path="/shops" element={<RequireAuth><ShopsList /></RequireAuth>} /> */}
             <Route path="/login" element={<LoginPage />} />
             <Route path="/admin/dashboard" element={<RequireAuth roles={['admin']}><AdminDashboard /></RequireAuth>} />

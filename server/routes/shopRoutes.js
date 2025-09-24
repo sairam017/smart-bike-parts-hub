@@ -17,6 +17,51 @@ router.get('/', async (req, res) => {
   res.json({ shops });
 });
 
+// Get nearby shops for map page
+router.get('/nearby', async (req, res) => {
+  try {
+    const { lat, lng, radius = 50 } = req.query;
+    
+    if (!lat || !lng) {
+      return res.status(400).json({ message: 'Latitude and longitude are required' });
+    }
+
+    const userLat = parseFloat(lat);
+    const userLng = parseFloat(lng);
+    const radiusKm = parseFloat(radius);
+
+    // Build query for geographical search
+    const query = {
+      location: {
+        $geoWithin: {
+          $centerSphere: [[userLng, userLat], radiusKm / 6378.1] // Convert km to radians
+        }
+      }
+    };
+
+    let shops = await Shop.find(query).populate('vendor', 'name email');
+
+    // Calculate distances and add to response
+    shops = shops.map(shop => {
+      const shopData = shop.toObject();
+      if (shop.location && shop.location.coordinates) {
+        const [shopLng, shopLat] = shop.location.coordinates;
+        const distance = calculateDistance(userLat, userLng, shopLat, shopLng);
+        shopData.distance = distance;
+      }
+      return shopData;
+    });
+
+    // Sort by distance
+    shops.sort((a, b) => (a.distance || Infinity) - (b.distance || Infinity));
+
+    res.json({ shops, totalShops: shops.length });
+  } catch (error) {
+    console.error('Error fetching nearby shops:', error);
+    res.status(500).json({ message: 'Failed to fetch nearby shops', error: error.message });
+  }
+});
+
 // Get shops that have specific products in stock
 router.get('/with-products', async (req, res) => {
   try {
@@ -171,6 +216,41 @@ router.get('/nearest', async (req, res) => {
   }
 });
 
+// Vendor: get my shop (single) - MUST come before /:id route
+router.get('/me', auth, async (req, res) => {
+  if(!['vendor','admin'].includes(req.user.role)) return res.status(403).json({ message: 'Forbidden' });
+  const filter = req.user.role === 'vendor' ? { vendor: req.user.id } : {};
+  const shop = await Shop.findOne(filter).populate('vendor','name email');
+  if(!shop) return res.status(404).json({ message: 'Shop not found' });
+  res.json(shop);
+});
+
+// Vendor/Admin: update my shop address and coordinates
+router.put('/me', auth, async (req, res) => {
+  try {
+    if(!['vendor','admin'].includes(req.user.role)) return res.status(403).json({ message: 'Forbidden' });
+    const filter = req.user.role === 'vendor' ? { vendor: req.user.id } : { _id: req.body.id };
+    const shop = await Shop.findOne(filter);
+    if(!shop) return res.status(404).json({ message: 'Shop not found' });
+    const { name, address, phone, website, latitude, longitude } = req.body;
+    if(name !== undefined) shop.name = name;
+    if(address !== undefined) shop.address = address;
+    if(phone !== undefined) shop.phone = phone;
+    if(website !== undefined) shop.website = website;
+    if(latitude != null && longitude != null) {
+      const latNum = parseFloat(latitude); const lngNum = parseFloat(longitude);
+      if (isNaN(latNum) || isNaN(lngNum)) return res.status(400).json({ message: 'Invalid coordinates' });
+      if (latNum < -90 || latNum > 90 || lngNum < -180 || lngNum > 180) return res.status(400).json({ message: 'Coordinates out of range' });
+      shop.location = { type: 'Point', coordinates: [ lngNum, latNum ] };
+    }
+    await shop.save();
+    res.json(shop);
+  } catch (e) {
+    console.error('Update shop error', e);
+    res.status(500).json({ message: 'Failed to update shop', error: e.message });
+  }
+});
+
 // Get specific shop details with inventory
 router.get('/:id', async (req, res) => {
   try {
@@ -296,40 +376,7 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
-// Vendor: get my shop (single)
-router.get('/me', auth, async (req, res) => {
-  if(!['vendor','admin'].includes(req.user.role)) return res.status(403).json({ message: 'Forbidden' });
-  const filter = req.user.role === 'vendor' ? { vendor: req.user.id } : {};
-  const shop = await Shop.findOne(filter).populate('vendor','name email');
-  if(!shop) return res.status(404).json({ message: 'Shop not found' });
-  res.json(shop);
-});
 
-// Vendor/Admin: update my shop address and coordinates
-router.put('/me', auth, async (req, res) => {
-  try {
-    if(!['vendor','admin'].includes(req.user.role)) return res.status(403).json({ message: 'Forbidden' });
-    const filter = req.user.role === 'vendor' ? { vendor: req.user.id } : { _id: req.body.id };
-    const shop = await Shop.findOne(filter);
-    if(!shop) return res.status(404).json({ message: 'Shop not found' });
-    const { name, address, phone, website, latitude, longitude } = req.body;
-    if(name !== undefined) shop.name = name;
-    if(address !== undefined) shop.address = address;
-    if(phone !== undefined) shop.phone = phone;
-    if(website !== undefined) shop.website = website;
-    if(latitude != null && longitude != null) {
-      const latNum = parseFloat(latitude); const lngNum = parseFloat(longitude);
-      if (isNaN(latNum) || isNaN(lngNum)) return res.status(400).json({ message: 'Invalid coordinates' });
-      if (latNum < -90 || latNum > 90 || lngNum < -180 || lngNum > 180) return res.status(400).json({ message: 'Coordinates out of range' });
-      shop.location = { type: 'Point', coordinates: [ lngNum, latNum ] };
-    }
-    await shop.save();
-    res.json(shop);
-  } catch (e) {
-    console.error('Update shop error', e);
-    res.status(500).json({ message: 'Failed to update shop', error: e.message });
-  }
-});
 
 // Vendor/Admin create
 router.post('/', auth, async (req, res) => {

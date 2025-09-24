@@ -68,6 +68,7 @@ app.use('/api/meta', require('./routes/metaRoutes'));
 app.use('/api/orders', require('./routes/orderRoutes'));
 app.use('/api/route-plan-local', require('./routes/routePlanRoutes'));
 app.use('/api/recommendations', require('./routes/recommendationRoutes'));
+app.use('/api/email', require('./routes/emailRoutes'));
 
 // Route planning proxy (Python FastAPI service)
 app.post('/api/route-plan', async (req, res) => {

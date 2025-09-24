@@ -1,16 +1,22 @@
-import React, { useEffect, useState, useContext, useCallback } from 'react';
+import React, { useEffect, useState, useContext, useCallback, useMemo, useRef } from 'react';
 import relatedMap from '../../utils/relatedParts';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
 import bikePartsService from '../../services/bikePartsService';
 import LocationContext from '../../context/LocationContext';
+import useCart from '../../hooks/useCart';
+import useAuth from '../../hooks/useAuth';
 import './bikeParts.css';
 import { formatINR } from '../../utils/currency';
 import { calculateDistanceToShop, formatDistance, debugDistance } from '../../utils/distanceUtils';
-// import InteractiveMap from '../maps/InteractiveMap';
-import ProductMap from '../maps/ProductMap';
+import EmailModal from '../email/EmailModal';
+import OrderModal from '../orders/OrderModal';
 import mapsService from '../../services/mapsService';
+import ProductMap from '../maps/ProductMap';
 
 const BikePartList = () => {
+    // Debug: Log when component re-renders (disabled for production)
+    // console.log('BikePartList render at:', new Date().toLocaleTimeString());
+    
     const [parts, setParts] = useState([]);
     const [companies, setCompanies] = useState([]);
     const [types, setTypes] = useState([]);
@@ -31,13 +37,59 @@ const BikePartList = () => {
     const navigate = useNavigate();
     const [searchTerm, setSearchTerm] = useState('');
     
+    // Cart and Auth
+    const { user } = useAuth();
+    const { dispatch: cartDispatch } = useCart();
+    
     // Image preview state
     const [hoveredProduct, setHoveredProduct] = useState(null);
     const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
 
-    // Map view state
-    const [showMap, setShowMap] = useState(false);
-    const [shopsForMap, setShopsForMap] = useState([]);
+    // Throttle mouse movement to prevent excessive re-renders
+    const throttleTimer = useRef(null);
+    const updateMousePosition = useCallback((x, y) => {
+        if (throttleTimer.current) return;
+        
+        throttleTimer.current = setTimeout(() => {
+            setMousePosition({ x, y });
+            throttleTimer.current = null;
+        }, 16); // ~60fps throttling
+    }, []);
+
+    // Email modal state
+    const [showEmailModal, setShowEmailModal] = useState(false);
+    const [emailType, setEmailType] = useState('products'); // 'products' or 'shops'
+    
+    // Order modal state
+    const [showOrderModal, setShowOrderModal] = useState(false);
+    const [orderSuccess, setOrderSuccess] = useState(false);
+    
+    // Shop locations for selected parts
+    const [selectedPartsShops, setSelectedPartsShops] = useState([]);
+    const [loadingShops, setLoadingShops] = useState(false);
+    const [showMapView, setShowMapView] = useState(false);
+
+    // Quick add to cart function
+    const quickAddToCart = (part) => {
+        if (!user) {
+            alert('Please login to add items to cart');
+            navigate('/login');
+            return;
+        }
+        
+        cartDispatch({
+            type: 'ADD_TO_CART',
+            payload: {
+                id: part._id,
+                name: part.name || part.model,
+                price: part.price,
+                image: part.images?.[0] || null,
+                qty: 1
+            }
+        });
+        
+        alert('Added to cart!');
+    };
 
 
     // All hooks must be called at the top level, never conditionally
@@ -121,57 +173,132 @@ const BikePartList = () => {
         return distance;
     }, [userLoc]);
 
-    useEffect(() => {
-        if (!userLoc) return;
-        const next = {};
-        parts.forEach(p => {
-            const d = computeDistanceFor(p);
-            if (d != null) next[p._id] = d;
-        });
-        setDistanceCache(next);
-        const entries = Object.entries(next).sort((a,b)=> a[1]-b[1]);
-        if (entries.length) setPrefShopProductId(entries[0][0]);
-    }, [userLoc, parts, computeDistanceFor]);
+    // Memoize parts calculation to prevent unnecessary re-calculations
+    const partsWithIds = useMemo(() => parts.map(p => ({ id: p._id, shop: p.shop })), [parts]);
 
-    // Prepare shops for map display
     useEffect(() => {
-        if (!parts.length) {
-            setShopsForMap([]);
+        if (!userLoc || !partsWithIds.length) {
+            setDistanceCache({});
+            setPrefShopProductId(null);
             return;
         }
+        
+        const next = {};
+        partsWithIds.forEach(({ id, shop }) => {
+            if (!shop?.location?.coordinates) return;
+            const distance = calculateDistanceToShop(userLoc, shop.location.coordinates);
+            if (distance != null) next[id] = distance;
+        });
+        
+        setDistanceCache(prev => {
+            // Only update if there are actual changes
+            const hasChanges = JSON.stringify(prev) !== JSON.stringify(next);
+            if (!hasChanges) return prev;
+            return next;
+        });
+        
+        const entries = Object.entries(next).sort((a,b)=> a[1]-b[1]);
+        if (entries.length) {
+            setPrefShopProductId(prev => prev !== entries[0][0] ? entries[0][0] : prev);
+        }
+    }, [userLoc, partsWithIds]); // Remove computeDistanceFor dependency
 
-        const productIds = parts.map(p => p._id);
-        const fetchShopsForProducts = async () => {
-            try {
-                const shopsData = await mapsService.getShopsForProducts(productIds);
-                const formattedShops = mapsService.formatShopsForMap(shopsData, userLoc);
-                setShopsForMap(formattedShops);
-            } catch (error) {
-                console.error('Error fetching shops for map:', error);
-                setShopsForMap([]);
+    // Cleanup throttle timer on unmount
+    useEffect(() => {
+        return () => {
+            if (throttleTimer.current) {
+                clearTimeout(throttleTimer.current);
             }
         };
+    }, []);
 
-        if (showMap) {
-            fetchShopsForProducts();
+    // Memoize the parts display to prevent unnecessary re-renders
+    const partsDisplay = useMemo(() => {
+        return parts.map((part) => {
+            const distance = distanceCache[part._id];
+            const isSelected = selectedIds.includes(part._id);
+            const isPref = prefShopProductId === part._id;
+            
+            return {
+                ...part,
+                distance,
+                isSelected,
+                isPref,
+                key: `${part._id}-${isSelected}-${distance}`
+            };
+        });
+    }, [parts, distanceCache, selectedIds, prefShopProductId]);
+
+    const handleEmailProducts = () => {
+        setEmailType('products');
+        setShowEmailModal(true);
+    };
+
+    const handlePlaceOrder = () => {
+        if (!user) {
+            alert('Please login to place an order');
+            navigate('/login');
+            return;
         }
-    }, [parts, userLoc, showMap]);
-
-    const handleToggleMap = () => {
-        setShowMap(!showMap);
+        
+        if (selectedIds.length === 0) {
+            alert('Please select at least one product to place an order');
+            return;
+        }
+        
+        setShowOrderModal(true);
     };
 
-    const handleShopSelect = (shop, isSelected) => {
-        console.log('Shop selected:', shop.name, 'Selected:', isSelected);
-        // Could be used to filter products by selected shops
+    const handleOrderSuccess = (orderResult) => {
+        setOrderSuccess(true);
+        setSelectedIds([]); // Clear selected items
+        
+        // Show success message
+        setTimeout(() => {
+            setOrderSuccess(false);
+        }, 5000);
     };
+
+    // Get selected products for order
+    const selectedProducts = parts.filter(part => selectedIds.includes(part._id)).map(part => ({
+        ...part,
+        quantity: 1 // Default quantity, can be made dynamic later
+    }));
 
     const currentUserLocation = userLoc ? {
         lat: userLoc.latitude,
         lng: userLoc.longitude
     } : null;
 
-    const mapCenter = mapsService.getMapCenter(shopsForMap, currentUserLocation);
+    // Fetch shop locations for selected parts
+    useEffect(() => {
+        if (selectedIds.length === 0) {
+            setSelectedPartsShops([]);
+            return;
+        }
+
+        const fetchShopsForSelectedParts = async () => {
+            setLoadingShops(true);
+            try {
+                const shopsData = await mapsService.getShopsForProducts(selectedIds);
+                const formattedShops = mapsService.formatShopsForMap(shopsData, currentUserLocation);
+                
+                // Sort by distance if user location is available
+                if (currentUserLocation) {
+                    formattedShops.sort((a, b) => (a.distance || 0) - (b.distance || 0));
+                }
+                
+                setSelectedPartsShops(formattedShops);
+            } catch (error) {
+                console.error('Error fetching shops for selected parts:', error);
+                setSelectedPartsShops([]);
+            } finally {
+                setLoadingShops(false);
+            }
+        };
+
+        fetchShopsForSelectedParts();
+    }, [selectedIds, currentUserLocation]);
 
     // Only after all hooks, handle conditional rendering
     if (loading) {
@@ -215,17 +342,19 @@ const BikePartList = () => {
                     const params = new URLSearchParams();
                     navigate({ pathname: '/parts', search: params.toString() });
                  }} className="btn-outline" style={{padding:'6px 12px'}}>Reset</button>
+
                 <button 
-                    onClick={handleToggleMap}
+                    onClick={handleEmailProducts}
+                    disabled={parts.length === 0}
                     style={{
                         padding: '10px 16px',
-                        background: showMap ? '#dc2626' : '#059669',
+                        background: parts.length === 0 ? '#9ca3af' : '#7c3aed',
                         color: 'white',
                         border: 'none',
                         borderRadius: '8px',
                         fontSize: '14px',
                         fontWeight: '600',
-                        cursor: 'pointer',
+                        cursor: parts.length === 0 ? 'not-allowed' : 'pointer',
                         display: 'flex',
                         alignItems: 'center',
                         gap: '8px',
@@ -233,30 +362,40 @@ const BikePartList = () => {
                         transition: 'all 0.2s ease'
                     }}
                     onMouseEnter={(e) => {
-                        e.target.style.transform = 'translateY(-1px)';
-                        e.target.style.boxShadow = '0 4px 8px rgba(0,0,0,0.15)';
+                        if (parts.length > 0) {
+                            e.target.style.transform = 'translateY(-1px)';
+                            e.target.style.boxShadow = '0 4px 8px rgba(0,0,0,0.15)';
+                            e.target.style.background = '#6d28d9';
+                        }
                     }}
                     onMouseLeave={(e) => {
-                        e.target.style.transform = 'translateY(0px)';
-                        e.target.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+                        if (parts.length > 0) {
+                            e.target.style.transform = 'translateY(0px)';
+                            e.target.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+                            e.target.style.background = '#7c3aed';
+                        }
                     }}
                 >
-                    {showMap ? '📋 Show Products List' : '🗺️ Find Shops & Get Directions'}
+                    📧 Email Product List
                 </button>
-                {showMap && (
-                    <div style={{
-                        background: '#f0f9ff',
-                        padding: '6px 12px',
-                        borderRadius: '6px',
-                        fontSize: '12px',
-                        color: '#0369a1',
-                        fontWeight: '500',
-                        marginLeft: '8px'
-                    }}>
-                        💡 Set your location & click "Directions" for navigation
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginLeft: 'auto' }}>
+                    {selectedIds.length > 0 && (
+                        <div style={{
+                            background: '#ecfdf5',
+                            padding: '6px 12px',
+                            borderRadius: '6px',
+                            fontSize: '12px',
+                            color: '#047857',
+                            fontWeight: '600',
+                            border: '1px solid #d1fae5'
+                        }}>
+                            ✓ {selectedIds.length} selected for order
+                        </div>
+                    )}
+                    <div style={{ fontSize: 12, color: '#475569' }}>
+                        Showing {parts.length} items
                     </div>
-                )}
-                <div style={{marginLeft:'auto', fontSize:12, color:'#475569'}}>Showing {parts.length} items</div>
+                </div>
             </div>
 
             {/* Parts Grid */}
@@ -266,19 +405,33 @@ const BikePartList = () => {
                         <h2 style={{margin:0}}>Available Parts</h2>
                         <button
                             disabled={!selectedIds.length}
-                            style={{padding:'8px 18px', borderRadius:8, background:'#1d4ed8', color:'#fff', fontWeight:600, border:'none', fontSize:'1rem'}}
-                            onClick={() => {
-                                const selectedParts = parts.filter(p => selectedIds.includes(p._id));
-                                if (selectedParts.length === 1) {
-                                    // Only one selected, go to its detail page
-                                    navigate(`/product/${selectedParts[0]._id}`);
-                                } else if (selectedParts.length > 1) {
-                                    // Multiple selected, pass all IDs in state
-                                    navigate(`/product/${selectedParts[0]._id}`, { state: { selectedIds: selectedParts.map(p => p._id) } });
-                                }
-                                // Recommendations will be fetched on the product detail page
+                            style={{
+                                padding:'8px 18px', 
+                                borderRadius:8, 
+                                background: selectedIds.length ? '#059669' : '#9ca3af', 
+                                color:'#fff', 
+                                fontWeight:600, 
+                                border:'none', 
+                                fontSize:'1rem',
+                                cursor: selectedIds.length ? 'pointer' : 'not-allowed',
+                                transition: 'all 0.2s ease'
                             }}
-                        >Get Confirm</button>
+                            onClick={handlePlaceOrder}
+                            onMouseEnter={(e) => {
+                                if (selectedIds.length > 0) {
+                                    e.target.style.background = '#047857';
+                                    e.target.style.transform = 'translateY(-1px)';
+                                }
+                            }}
+                            onMouseLeave={(e) => {
+                                if (selectedIds.length > 0) {
+                                    e.target.style.background = '#059669';
+                                    e.target.style.transform = 'translateY(0px)';
+                                }
+                            }}
+                        >
+                            🛒 Place Order ({selectedIds.length} {selectedIds.length === 1 ? 'item' : 'items'})
+                        </button>
                     </div>
                     {recommendations.length > 0 && (
                         <div style={{marginLeft:'2rem', background:'#f1f5f9', padding:'0.5rem 1rem', borderRadius:10}}>
@@ -291,26 +444,252 @@ const BikePartList = () => {
                 </div>
                 {!parts.length && <p>No parts found{searchTerm?` for "${searchTerm}"`:''}.</p>}
                 
-                {/* Map View */}
-                {showMap && parts.length > 0 && (
-                    <div style={{marginBottom: '1rem'}}>
-                        <ProductMap 
-                            shops={shopsForMap}
-                            userLocation={currentUserLocation}
-                        />
+                {/* Shop Locations for Selected Parts */}
+                {selectedIds.length > 0 && (
+                    <div style={{
+                        background: '#f8fafc',
+                        border: '1px solid #e5e7eb',
+                        borderRadius: '12px',
+                        padding: '16px',
+                        marginBottom: '1rem'
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                            <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                🏪 Shop Locations for Selected Parts
+                                <span style={{ 
+                                    background: '#3b82f6', 
+                                    color: 'white', 
+                                    padding: '2px 8px', 
+                                    borderRadius: '12px', 
+                                    fontSize: '0.8rem' 
+                                }}>
+                                    {selectedIds.length} selected
+                                </span>
+                            </h3>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                {currentUserLocation && (
+                                    <div style={{ fontSize: '0.9rem', color: '#6b7280' }}>
+                                        📍 Sorted by distance from your location
+                                    </div>
+                                )}
+                                <div style={{ display: 'flex', background: '#f1f5f9', borderRadius: '8px', padding: '2px' }}>
+                                    <button
+                                        onClick={() => setShowMapView(false)}
+                                        style={{
+                                            padding: '6px 12px',
+                                            fontSize: '0.8rem',
+                                            border: 'none',
+                                            borderRadius: '6px',
+                                            cursor: 'pointer',
+                                            transition: 'all 0.2s',
+                                            background: !showMapView ? '#3b82f6' : 'transparent',
+                                            color: !showMapView ? 'white' : '#6b7280'
+                                        }}
+                                    >
+                                        📋 List View
+                                    </button>
+                                    <button
+                                        onClick={() => setShowMapView(true)}
+                                        style={{
+                                            padding: '6px 12px',
+                                            fontSize: '0.8rem',
+                                            border: 'none',
+                                            borderRadius: '6px',
+                                            cursor: 'pointer',
+                                            transition: 'all 0.2s',
+                                            background: showMapView ? '#3b82f6' : 'transparent',
+                                            color: showMapView ? 'white' : '#6b7280'
+                                        }}
+                                    >
+                                        🗺️ Map View
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        {loadingShops ? (
+                            <div style={{ 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                justifyContent: 'center', 
+                                padding: '20px',
+                                color: '#6b7280' 
+                            }}>
+                                <div style={{ marginRight: '8px' }}>🔄</div>
+                                Loading shop locations...
+                            </div>
+                        ) : selectedPartsShops.length > 0 ? (
+                            showMapView ? (
+                                // Map View
+                                <div style={{ 
+                                    height: '500px', 
+                                    borderRadius: '8px', 
+                                    overflow: 'visible', 
+                                    border: '1px solid #e5e7eb',
+                                    position: 'relative',
+                                    width: '100%',
+                                    display: 'block'
+                                }}>
+                                    <ProductMap
+                                        shops={selectedPartsShops}
+                                        userLocation={currentUserLocation}
+                                        selectedParts={selectedIds.map(id => parts.find(p => p._id === id)).filter(Boolean)}
+                                        showShopInfo={true}
+                                    />
+                                </div>
+                            ) : (
+                                // Card View
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '12px' }}>
+                                    {selectedPartsShops.map((shop, index) => (
+                                        <div key={shop._id || index} style={{
+                                            background: 'white',
+                                            border: '1px solid #e5e7eb',
+                                            borderRadius: '8px',
+                                            padding: '12px',
+                                            transition: 'all 0.2s ease',
+                                            cursor: 'pointer'
+                                        }}
+                                        onMouseEnter={(e) => {
+                                            e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
+                                            e.currentTarget.style.transform = 'translateY(-2px)';
+                                        }}
+                                        onMouseLeave={(e) => {
+                                            e.currentTarget.style.boxShadow = 'none';
+                                            e.currentTarget.style.transform = 'translateY(0px)';
+                                        }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                                                <h4 style={{ margin: 0, fontSize: '1rem', color: '#1f2937' }}>
+                                                    {shop.name}
+                                                </h4>
+                                                {shop.distance && (
+                                                    <div style={{
+                                                        background: index === 0 ? '#10b981' : '#3b82f6',
+                                                        color: 'white',
+                                                        padding: '2px 8px',
+                                                        borderRadius: '12px',
+                                                        fontSize: '0.75rem',
+                                                        fontWeight: '600'
+                                                    }}>
+                                                        {shop.distance.toFixed(2)} km
+                                                        {index === 0 && ' (Nearest)'}
+                                                    </div>
+                                                )}
+                                            </div>
+                                            
+                                            <div style={{ marginBottom: '8px' }}>
+                                                <p style={{ margin: '2px 0', fontSize: '0.875rem', color: '#6b7280' }}>
+                                                    📍 {shop.address || 'Address not available'}
+                                                </p>
+                                                {shop.phone && (
+                                                    <p style={{ margin: '2px 0', fontSize: '0.875rem', color: '#6b7280' }}>
+                                                        📞 {shop.phone}
+                                                    </p>
+                                                )}
+                                                <p style={{ margin: '2px 0', fontSize: '0.875rem', color: '#6b7280' }}>
+                                                    📦 {shop.productCount || 0} products available
+                                                </p>
+                                            </div>
+
+                                            <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                                                <button
+                                                    onClick={() => {
+                                                        const url = `https://www.google.com/maps?q=${shop.lat},${shop.lng}`;
+                                                        window.open(url, '_blank');
+                                                    }}
+                                                    style={{
+                                                        flex: 1,
+                                                        padding: '6px 12px',
+                                                        background: '#3b82f6',
+                                                        color: 'white',
+                                                        border: 'none',
+                                                        borderRadius: '6px',
+                                                        fontSize: '0.8rem',
+                                                        fontWeight: '500',
+                                                        cursor: 'pointer',
+                                                        transition: 'background 0.2s'
+                                                    }}
+                                                    onMouseEnter={(e) => e.target.style.background = '#2563eb'}
+                                                    onMouseLeave={(e) => e.target.style.background = '#3b82f6'}
+                                                >
+                                                    🗺️ View on Map
+                                                </button>
+                                                
+                                                {currentUserLocation && (
+                                                    <button
+                                                        onClick={() => {
+                                                            const url = `https://www.google.com/maps/dir/${currentUserLocation.lat},${currentUserLocation.lng}/${shop.lat},${shop.lng}`;
+                                                            window.open(url, '_blank');
+                                                        }}
+                                                        style={{
+                                                            flex: 1,
+                                                            padding: '6px 12px',
+                                                            background: '#10b981',
+                                                            color: 'white',
+                                                            border: 'none',
+                                                            borderRadius: '6px',
+                                                            fontSize: '0.8rem',
+                                                            fontWeight: '500',
+                                                            cursor: 'pointer',
+                                                            transition: 'background 0.2s'
+                                                        }}
+                                                        onMouseEnter={(e) => e.target.style.background = '#059669'}
+                                                        onMouseLeave={(e) => e.target.style.background = '#10b981'}
+                                                    >
+                                                        🧭 Get Directions
+                                                    </button>
+                                                )}
+                                            </div>
+
+                                            {/* Show coordinates for debugging */}
+                                            <div style={{ 
+                                                marginTop: '8px', 
+                                                fontSize: '0.75rem', 
+                                                color: '#9ca3af',
+                                                fontFamily: 'monospace'
+                                            }}>
+                                                📐 {shop.lat?.toFixed(4)}, {shop.lng?.toFixed(4)}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )
+                        ) : (
+                            <div style={{
+                                textAlign: 'center',
+                                padding: '20px',
+                                color: '#6b7280'
+                            }}>
+                                <div style={{ fontSize: '2rem', marginBottom: '8px' }}>🔍</div>
+                                <p style={{ margin: 0 }}>No shops found with selected products</p>
+                                <p style={{ margin: '4px 0 0 0', fontSize: '0.875rem' }}>
+                                    Try selecting different products or check availability
+                                </p>
+                            </div>
+                        )}
+
+                        {!currentUserLocation && (
+                            <div style={{
+                                marginTop: '12px',
+                                padding: '8px 12px',
+                                background: '#fef3c7',
+                                border: '1px solid #fbbf24',
+                                borderRadius: '6px',
+                                fontSize: '0.875rem',
+                                color: '#92400e'
+                            }}>
+                                💡 <strong>Tip:</strong> Enable location access to see distances and get directions to shops
+                            </div>
+                        )}
                     </div>
                 )}
-
+                
                 {/* Parts Grid */}
                 <div className="parts-list">
-                    {parts.map(part => {
-                        const distanceKm = distanceCache[part._id];
-                        const highlight = part._id === prefShopProductId;
-                        const checked = selectedIds.includes(part._id);
+                    {partsDisplay.map(part => {
                         return (
-                            <div key={part._id} className="part-card compact" style={highlight ? {outline:'2px solid #1d4ed8'} : {}}>
+                            <div key={part.key} className="part-card compact" style={part.isPref ? {outline:'2px solid #1d4ed8'} : {}}>
                                 <div style={{display:'flex', alignItems:'center', gap:6}}>
-                                    <input type="checkbox" checked={checked} onChange={e => {
+                                    <input type="checkbox" checked={part.isSelected} onChange={e => {
                                         setSelectedIds(ids => e.target.checked ? [...ids, part._id] : ids.filter(id => id !== part._id));
                                     }} />
                                     <Link to={`/product/${part._id}`} style={{display:'block', flex:1, position:'relative'}}>
@@ -332,7 +711,7 @@ const BikePartList = () => {
                                                         e.target.style.transform = 'scale(1.02)';
                                                         if (part.images.length > 1) {
                                                             setHoveredProduct(part);
-                                                            setMousePosition({ x: e.clientX, y: e.clientY });
+                                                            updateMousePosition(e.clientX, e.clientY);
                                                         }
                                                     }}
                                                     onMouseLeave={(e) => {
@@ -340,8 +719,8 @@ const BikePartList = () => {
                                                         setHoveredProduct(null);
                                                     }}
                                                     onMouseMove={(e) => {
-                                                        if (part.images.length > 1) {
-                                                            setMousePosition({ x: e.clientX, y: e.clientY });
+                                                        if (part.images.length > 1 && hoveredProduct) {
+                                                            updateMousePosition(e.clientX, e.clientY);
                                                         }
                                                     }}
                                                 />
@@ -371,13 +750,68 @@ const BikePartList = () => {
                                 </div>
                                 <h4 style={{marginTop:4, fontSize:'.7rem'}}>{part.name || part.model}</h4>
                                 <div className="part-meta" style={{fontSize:'.6rem'}}>{part.company ? part.company+' • ' : ''}{part.model || (part.type || 'Part')}{part.vehicleYear ? ' • '+part.vehicleYear : ''} <span className="part-price" style={{fontSize:'.5rem'}}>{formatINR(part.price)}</span></div>
-                                {distanceKm != null && (
+                                {part.distance != null && (
                                     <div style={{marginTop:4, fontSize:'.5rem', color:'#1e293b', display:'flex', gap:4, alignItems:'center'}}>
-                                        <span style={{background: highlight? '#1d4ed8':'#e2e8f0', color: highlight? '#fff':'#0f172a', padding:'2px 6px', borderRadius:20}}>{formatDistance(distanceKm)}</span>
-                                        {highlight && <span style={{color:'#1d4ed8', fontWeight:600}}>Nearest</span>}
+                                        <span style={{background: part.isPref? '#1d4ed8':'#e2e8f0', color: part.isPref? '#fff':'#0f172a', padding:'2px 6px', borderRadius:20}}>{formatDistance(part.distance)}</span>
+                                        {part.isPref && <span style={{color:'#1d4ed8', fontWeight:600}}>Nearest</span>}
                                     </div>
                                 )}
                                 {part.description && <ExpandableMini text={part.description} />}
+                                
+                                {/* Action Buttons */}
+                                <div style={{ marginTop: '8px', display: 'flex', gap: '4px' }}>
+                                    <button
+                                        onClick={(e) => {
+                                            e.preventDefault();
+                                            quickAddToCart(part);
+                                        }}
+                                        style={{
+                                            flex: 1,
+                                            padding: '6px 8px',
+                                            background: '#1d4ed8',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '6px',
+                                            fontSize: '0.6rem',
+                                            fontWeight: '600',
+                                            cursor: 'pointer',
+                                            transition: 'background 0.2s'
+                                        }}
+                                        onMouseEnter={(e) => e.target.style.background = '#1e40af'}
+                                        onMouseLeave={(e) => e.target.style.background = '#1d4ed8'}
+                                    >
+                                        🛒 Cart
+                                    </button>
+                                    
+                                    <button
+                                        onClick={(e) => {
+                                            e.preventDefault();
+                                            if (!user) {
+                                                alert('Please login to place orders');
+                                                navigate('/login');
+                                                return;
+                                            }
+                                            setSelectedIds([part._id]);
+                                            setShowOrderModal(true);
+                                        }}
+                                        style={{
+                                            flex: 1,
+                                            padding: '6px 8px',
+                                            background: '#059669',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '6px',
+                                            fontSize: '0.6rem',
+                                            fontWeight: '600',
+                                            cursor: 'pointer',
+                                            transition: 'background 0.2s'
+                                        }}
+                                        onMouseEnter={(e) => e.target.style.background = '#047857'}
+                                        onMouseLeave={(e) => e.target.style.background = '#059669'}
+                                    >
+                                        � Order
+                                    </button>
+                                </div>
                             </div>
                         );
                     })}
@@ -437,8 +871,42 @@ const BikePartList = () => {
                 </div>
             )}
             
-            {/* Map modal removed */}
-    {/* Toasts removed with action buttons */}
+            {/* Email Modal */}
+            <EmailModal
+                isOpen={showEmailModal}
+                onClose={() => setShowEmailModal(false)}
+                products={parts}
+                shops={[]}
+                userLocation={currentUserLocation}
+                type="products"
+            />
+
+            {/* Order Modal */}
+            <OrderModal
+                isOpen={showOrderModal}
+                onClose={() => setShowOrderModal(false)}
+                selectedProducts={selectedProducts}
+                onOrderSuccess={handleOrderSuccess}
+            />
+
+            {/* Order Success Message */}
+            {orderSuccess && (
+                <div style={{
+                    position: 'fixed',
+                    top: '20px',
+                    right: '20px',
+                    background: '#10b981',
+                    color: 'white',
+                    padding: '16px 20px',
+                    borderRadius: '8px',
+                    boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
+                    zIndex: 10000,
+                    fontSize: '14px',
+                    fontWeight: '600'
+                }}>
+                    ✅ Order placed successfully! Check your email for confirmation.
+                </div>
+            )}
         </div>
     );
 };

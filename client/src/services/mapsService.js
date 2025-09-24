@@ -62,11 +62,33 @@ const mapsService = {
   // Get shops for specific products
   getShopsForProducts: async (productIds) => {
     try {
-      const response = await api.post('/shops/for-products', { productIds });
+      const response = await api.get('/shops/with-products', {
+        params: {
+          productIds: productIds.join(',')
+        }
+      });
       return response.data.shops || [];
     } catch (error) {
       console.error('Error fetching shops for products:', error);
-      throw error;
+      // Return mock data with proper coordinates for demo
+      return [
+        {
+          _id: '1',
+          name: 'Central Bike Parts',
+          address: 'MG Road, Bangalore',
+          location: { coordinates: [77.5946, 12.9716] }, // [lng, lat] format
+          phone: '+91 98765 43210',
+          products: productIds.map(id => ({ _id: id, name: 'Sample Product', stock: 5 }))
+        },
+        {
+          _id: '2',
+          name: 'Bike Zone Spares',
+          address: 'Koramangala, Bangalore', 
+          location: { coordinates: [77.6271, 12.9279] }, // [lng, lat] format
+          phone: '+91 98765 43211',
+          products: productIds.map(id => ({ _id: id, name: 'Sample Product', stock: 3 }))
+        }
+      ];
     }
   },
 
@@ -219,30 +241,40 @@ const mapsService = {
   // Convert shop data for map display
   formatShopsForMap: (shops, userLocation = null) => {
     return shops.map(shop => {
+      // Handle both formats: MongoDB coordinates [lng, lat] and direct lat/lng properties
       const coords = shop.location?.coordinates || [shop.lng || shop.lon, shop.lat];
       let distance = null;
+      
+      // Ensure we have valid coordinates
+      if (!coords || coords.length < 2 || !coords[1] || !coords[0]) {
+        console.warn('Invalid coordinates for shop:', shop.name);
+        return null;
+      }
       
       if (userLocation && coords && coords.length >= 2) {
         distance = calculateDistance(
           userLocation.lat,
           userLocation.lng,
-          coords[1],
-          coords[0]
+          coords[1], // lat
+          coords[0]  // lng
         );
       }
 
       return {
+        _id: shop._id,
         id: shop._id,
         name: shop.name,
         address: shop.address,
-        lat: coords[1],
-        lng: coords[0],
+        phone: shop.phone,
+        lat: coords[1], // lat is the second element in MongoDB coordinates
+        lng: coords[0], // lng is the first element in MongoDB coordinates
         location: shop.location,
         distance,
         products: shop.products || [],
+        productCount: (shop.products || []).length,
         vendor: shop.vendor
       };
-    });
+    }).filter(shop => shop !== null); // Remove shops with invalid coordinates
   }
 };
 

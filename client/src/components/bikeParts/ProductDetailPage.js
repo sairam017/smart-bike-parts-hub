@@ -429,16 +429,15 @@ const ProductDetailPage = () => {
     alert('Added to cart successfully!');
   };
 
-  // Handle "Get Maps" - show maps with selected products
+  // Handle "Get Maps" - navigate to dedicated map page
   const handleGetMaps = (selectedRecommendations = []) => {
-    // Prepare products for map (current product + selected recommendations)
-    const allProducts = [product._id, ...selectedRecommendations.map(r => r._id)];
-    setSelectedProductsForMap(allProducts);
-    setRecommendedProducts(selectedRecommendations);
-    
-    // Move to map step
-    setCurrentStep('maps');
-    setShowMapAfterRecommendations(true);
+    // Navigate to the dedicated map page with current product and recommendations
+    navigate('/maps', {
+      state: {
+        selectedProducts: [product],
+        recommendedProducts: selectedRecommendations || []
+      }
+    });
   };
 
   // Handle shop selection from map - show purchase form
