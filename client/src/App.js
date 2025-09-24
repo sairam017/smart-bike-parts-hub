@@ -6,6 +6,7 @@ import { CartProvider } from './context/CartContext';
 import BikePartList from './components/bikeParts/BikePartList';
 import ProductDetailPage from './components/bikeParts/ProductDetailPage';
 import MapPage from './components/maps/MapPage';
+import RecommendationsPage from './components/recommendations/RecommendationsPage';
 import LandingPage from './components/landing/LandingPage';
 import AdminUsersPage from './components/admin/AdminUsersPage';
 import AdminProductsPage from './components/admin/AdminProductsPage';
@@ -129,6 +130,7 @@ function App() {
             <Route path="/" element={<LandingPage />} />
             <Route path="/parts" element={<BikePartList />} />
             <Route path="/product/:id" element={<ProductDetailPage />} />
+            <Route path="/recommendations" element={<RequireAuth><RecommendationsPage /></RequireAuth>} />
             <Route path="/maps" element={<RequireAuth><MapPage /></RequireAuth>} />
             {/* <Route path="/shops" element={<RequireAuth><ShopsList /></RequireAuth>} /> */}
             <Route path="/login" element={<LoginPage />} />

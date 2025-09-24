@@ -1,11 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { formatINR } from '../../utils/currency';
 import { Link, useNavigate } from 'react-router-dom';
 import useCart from '../../hooks/useCart';
 import useAuth from '../../hooks/useAuth';
 import api from '../../services/api';
-import RouteSuggestion from './RouteSuggestion';
-import CartMap from './CartMap_new';
 
 const CartPage = () => {
   // All hooks at top-level (no conditional returns before they are called)
@@ -36,15 +34,7 @@ const CartPage = () => {
   const [placing, setPlacing] = useState(false);
   const [orderMsg, setOrderMsg] = useState(null);
 
-  // State for shop data and map functionality
-  const [shops, setShops] = useState([]);
-  const [loadingShops, setLoadingShops] = useState(false);
 
-  // Effect to fetch shops when cart items change
-  useEffect(() => {
-    const productIds = cart.items.map(item => item.id);
-    fetchShopsWithProducts(productIds);
-  }, [cart.items]); // Dependency on cart items
 
   const validatePhone = (p) => /^\d{10}$/.test(p); // simple 10 digit validation
   const validateEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e); // basic email validation
@@ -56,41 +46,7 @@ const CartPage = () => {
     return sel >= today;
   };
 
-  // Function to fetch shops that have cart items in stock
-  const fetchShopsWithProducts = async (productIds) => {
-    if (!productIds || productIds.length === 0) {
-      setShops([]);
-      return;
-    }
 
-    try {
-      setLoadingShops(true);
-      const response = await api.get('/shops/with-products', {
-        params: {
-          productIds: productIds.join(',')
-        }
-      });
-      
-      // Transform shop data to match CartMap expectations
-      const shopsData = response.data.shops.map(shop => ({
-        _id: shop._id,
-        name: shop.name,
-        address: shop.address,
-        phone: shop.phone,
-        lat: shop.location?.coordinates?.[1], // MongoDB stores [lng, lat] format
-        lng: shop.location?.coordinates?.[0],
-        productCount: shop.products?.length || 0,
-        products: shop.products || []
-      })).filter(shop => shop.lat && shop.lng); // Only include shops with valid coordinates
-
-      setShops(shopsData);
-    } catch (error) {
-      console.error('Error fetching shops:', error);
-      setShops([]);
-    } finally {
-      setLoadingShops(false);
-    }
-  };
 
   const placeAll = async () => {
     if (!user) { navigate('/auth'); return; }
@@ -176,41 +132,47 @@ const CartPage = () => {
         </div>
       )}
 
-  {/* Interactive Shop Map with Full Functionality */}
-  {cart.items.length > 0 && (
-    <div style={{marginTop:'1.5rem'}}>
-      <h3 style={{marginBottom: '1rem'}}>🗺️ Find Shops with Your Cart Items</h3>
-      <p style={{color: '#666', fontSize: '14px', marginBottom: '1rem'}}>
-        Discover bike part shops near you. Click on markers to see shop details and get directions.
-      </p>
-      {loadingShops ? (
-        <div style={{ 
-          padding: '2rem', 
-          textAlign: 'center', 
-          background: '#f8f9fa', 
-          borderRadius: '8px',
-          color: '#666' 
-        }}>
-          Loading nearby shops with your cart items...
-        </div>
-      ) : shops.length > 0 ? (
-        <CartMap shops={shops} />
-      ) : (
-        <div style={{ 
-          padding: '2rem', 
-          textAlign: 'center', 
-          background: '#f8f9fa', 
-          borderRadius: '8px',
-          color: '#666' 
-        }}>
-          No shops found with your cart items in stock nearby.
+      {/* View Cart Items on Map Button */}
+      {!!cart.items.length && (
+        <div style={{marginTop:'1rem', textAlign:'center'}}>
+          <button 
+            onClick={() => navigate('/maps', { 
+              state: { 
+                cartItems: cart.items,
+                fromCart: true 
+              } 
+            })}
+            style={{
+              padding: '12px 24px',
+              background: '#059669',
+              color: 'white',
+              border: 'none',
+              borderRadius: '8px',
+              fontSize: '16px',
+              fontWeight: '600',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              margin: '0 auto',
+              boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+              transition: 'all 0.2s ease'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = '#047857';
+              e.target.style.transform = 'translateY(-1px)';
+              e.target.style.boxShadow = '0 4px 8px rgba(0,0,0,0.15)';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = '#059669';
+              e.target.style.transform = 'translateY(0px)';
+              e.target.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+            }}
+          >
+            🗺️ View Cart Items on Map
+          </button>
         </div>
       )}
-    </div>
-  )}
-
-  {/* Route suggestion (includes related recommendations from backend) */}
-  <RouteSuggestion cartItems={cart.items.map(i => ({ part: { _id: i.id, name: i.name, type: i.type }, quantity: i.qty }))} />
     </div>
   );
 };

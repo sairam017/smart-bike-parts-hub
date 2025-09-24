@@ -8,7 +8,16 @@ const orderSchema = new mongoose.Schema({
       name: String,
       qty: Number,
       price: Number,
-      product: { type: mongoose.Schema.Types.ObjectId, ref: 'BikePart' }
+      product: { type: mongoose.Schema.Types.ObjectId, ref: 'BikePart' },
+      // Individual product status for vendor confirmation/rejection
+      productStatus: {
+        type: String,
+        enum: ['pending', 'confirmed', 'rejected', 'processing', 'shipped', 'delivered'],
+        default: 'pending'
+      },
+      vendorNotes: { type: String }, // Vendor can add notes for this specific product
+      updatedAt: { type: Date, default: Date.now },
+      updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' } // Track which vendor updated
     }
   ],
   shippingAddress: {

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import bikePartsService from '../../services/bikePartsService';
@@ -33,6 +33,17 @@ const VendorDashboard = () => {
   const [creating, setCreating] = useState(false);
   const [lastSubmissionTime, setLastSubmissionTime] = useState(0);
   const [msg, setMsg] = useState(null);
+  
+  // Orders state
+  const [orders, setOrders] = useState([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [selectedOrder, setSelectedOrder] = useState(null);
+  const [statusUpdate, setStatusUpdate] = useState({ status: '', notes: '' });
+  const [updatingStatus, setUpdatingStatus] = useState(false);
+  
+  // Product-level status updates
+  const [updatingProduct, setUpdatingProduct] = useState(null);
+  
   const { logout, user } = useAuth();
   const navigate = useNavigate();
   const bgStyle = useMemo(()=>({ minHeight: '100vh', background: '#ffffff', color: '#0b2e68' }), []);
@@ -54,6 +65,55 @@ const VendorDashboard = () => {
     for (let y = now; y >= start; y--) arr.push(y);
     return arr;
   }, []);
+
+  // Load vendor orders
+  const loadOrders = async () => {
+    setOrdersLoading(true);
+    try {
+      const response = await api.get('/orders/vendor/orders');
+      setOrders(response.data.orders || []);
+    } catch (error) {
+      console.error('Error loading orders:', error);
+      setOrders([]);
+    } finally {
+      setOrdersLoading(false);
+    }
+  };
+
+  // Update order status
+  const updateOrderStatus = async (orderId, status, notes = '') => {
+    setUpdatingStatus(true);
+    try {
+      await api.put(`/orders/${orderId}/status`, { status, notes });
+      await loadOrders(); // Refresh orders
+      setSelectedOrder(null);
+      setStatusUpdate({ status: '', notes: '' });
+      alert('Order status updated successfully!');
+    } catch (error) {
+      console.error('Error updating order status:', error);
+      alert(error.response?.data?.message || 'Failed to update order status');
+    } finally {
+      setUpdatingStatus(false);
+    }
+  };
+
+  // Update individual product status
+  const updateProductStatus = async (orderId, productId, status, notes = '') => {
+    setUpdatingProduct(`${orderId}-${productId}`);
+    try {
+      await api.put(`/orders/${orderId}/product/${productId}/status`, { 
+        productStatus: status, 
+        vendorNotes: notes 
+      });
+      await loadOrders(); // Refresh orders
+      alert(`Product ${status} successfully!`);
+    } catch (error) {
+      console.error('Error updating product status:', error);
+      alert(error.response?.data?.message || 'Failed to update product status');
+    } finally {
+      setUpdatingProduct(null);
+    }
+  };
 
   useEffect(() => {
     setLoading(true);
@@ -411,7 +471,7 @@ const VendorDashboard = () => {
   };
 
   // ----- Meta (company/model images) -----
-  const refreshMeta = async () => {
+  const refreshMeta = useCallback(async () => {
     try {
       const [cRes] = await Promise.all([
         metaService.getCompanies()
@@ -424,7 +484,7 @@ const VendorDashboard = () => {
     } catch (e) {
       // ignore
     }
-  };
+  }, [modelMetaForm.company]);
   useEffect(() => { if (tab === 'meta') refreshMeta(); }, [tab, refreshMeta]);
   useEffect(() => { if (tab === 'meta' && metaTab === 'model' && modelMetaForm.company) {
     metaService.getModels(modelMetaForm.company).then(r => setModelMetaList(r.data || [])).catch(()=> setModelMetaList([]));
@@ -488,6 +548,7 @@ const VendorDashboard = () => {
     <div style={{ display:'flex', gap:'0.5rem', marginBottom:'1rem', padding:'1rem', alignItems:'center', borderBottom:'2px solid #1d4ed8' }}>
     <button onClick={()=> { setTab('shop'); }} disabled={tab==='shop'} className={tab==='shop' ? 'btn-primary' : 'btn-outline'}>Shop</button>
   <button onClick={()=> { setTab('parts'); setUpdateMode(false); }} disabled={tab==='parts' && !updateMode} className={tab==='parts' && !updateMode ? 'btn-primary' : 'btn-outline'}>Parts</button>
+  <button onClick={()=> { setTab('orders'); loadOrders(); }} disabled={tab==='orders'} className={tab==='orders' ? 'btn-primary' : 'btn-outline'}>Orders ({orders.length})</button>
   <button onClick={()=> setTab('meta')} disabled={tab==='meta'} className={tab==='meta' ? 'btn-primary' : 'btn-outline'}>Brand / Model Images</button>
         <button
           type="button"
@@ -505,6 +566,293 @@ const VendorDashboard = () => {
           <button onClick={logout} className="btn-outline">Logout</button>
         </div>
       </div>
+
+      {tab === 'orders' && (
+        <div className="vendor-card" style={{ display:'grid', gap:'1rem', maxWidth: 1200, margin:'1rem' }}>
+          <div style={{display:'flex', alignItems:'center', justifyContent:'space-between'}}>
+            <h2 style={{margin:0, color:'#1d4ed8'}}>Customer Orders</h2>
+            <div style={{display:'flex', gap:'8px'}}>
+              <button onClick={loadOrders} disabled={ordersLoading} className="btn-outline">
+                {ordersLoading ? 'Loading...' : 'Refresh'}
+              </button>
+            </div>
+          </div>
+          
+          {ordersLoading ? (
+            <div style={{padding:'2rem', textAlign:'center', color:'#6b7280'}}>
+              Loading orders...
+            </div>
+          ) : orders.length === 0 ? (
+            <div style={{padding:'2rem', textAlign:'center', color:'#6b7280'}}>
+              <div style={{fontSize:'2rem', marginBottom:'1rem'}}>📦</div>
+              <p>No orders yet!</p>
+              <p style={{fontSize:'0.9rem'}}>Orders from customers will appear here when they purchase your products.</p>
+            </div>
+          ) : (
+            <div style={{display:'grid', gap:'1rem'}}>
+              <div style={{fontSize:'0.9rem', color:'#6b7280'}}>
+                Found {orders.length} orders with your products
+              </div>
+              
+              {orders.map(order => (
+                <div key={order._id} style={{
+                  background:'#fff', 
+                  border:'1px solid #e5e7eb', 
+                  borderRadius:'8px', 
+                  padding:'1rem',
+                  boxShadow:'0 1px 3px rgba(0,0,0,0.1)'
+                }}>
+                  <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:'1rem'}}>
+                    <div>
+                      <h3 style={{margin:0, fontSize:'1.1rem', color:'#1f2937'}}>
+                        Order #{order._id.slice(-8)}
+                      </h3>
+                      <div style={{fontSize:'0.9rem', color:'#6b7280', marginTop:'4px'}}>
+                        {new Date(order.createdAt || order.orderDate).toLocaleDateString()} at{' '}
+                        {new Date(order.createdAt || order.orderDate).toLocaleTimeString()}
+                      </div>
+                    </div>
+                    <div style={{textAlign:'right'}}>
+                      <div style={{
+                        padding:'4px 12px',
+                        borderRadius:'20px',
+                        fontSize:'0.8rem',
+                        fontWeight:'600',
+                        background: order.status === 'delivered' ? '#10b981' : 
+                                   order.status === 'processing' ? '#f59e0b' :
+                                   order.status === 'confirmed' ? '#3b82f6' : '#6b7280',
+                        color:'white'
+                      }}>
+                        {order.status?.toUpperCase() || 'PENDING'}
+                      </div>
+                      <div style={{fontSize:'1.1rem', fontWeight:'600', color:'#1f2937', marginTop:'4px'}}>
+                        ₹{order.vendorTotal || 0}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{marginBottom:'1rem'}}>
+                    <h4 style={{margin:'0 0 8px', fontSize:'1rem', color:'#374151'}}>Customer Information</h4>
+                    <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))', gap:'8px', fontSize:'0.9rem'}}>
+                      <div>👤 <strong>Name:</strong> {order.customerInfo.name}</div>
+                      <div>📧 <strong>Email:</strong> {order.customerInfo.email}</div>
+                      <div>📱 <strong>Phone:</strong> {order.customerInfo.phone}</div>
+                      {order.collectionDate && (
+                        <div>📅 <strong>Collection:</strong> {new Date(order.collectionDate).toLocaleDateString()}</div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div style={{marginBottom:'1rem'}}>
+                    <h4 style={{margin:'0 0 8px', fontSize:'1rem', color:'#374151'}}>Ordered Items</h4>
+                    <div style={{display:'grid', gap:'12px'}}>
+                      {order.orderItems.map((item, index) => {
+                        const productStatus = item.productStatus || 'pending';
+                        const isUpdating = updatingProduct === `${order._id}-${item.product?._id}`;
+                        
+                        return (
+                          <div key={index} style={{
+                            padding:'12px',
+                            background:'#f9fafb',
+                            borderRadius:'8px',
+                            border:'1px solid #e5e7eb'
+                          }}>
+                            <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:'8px'}}>
+                              <div style={{flex:1}}>
+                                <strong>{item.name || item.product?.name}</strong>
+                                {item.product?.company && <span style={{color:'#6b7280'}}> - {item.product.company}</span>}
+                                <div style={{fontSize:'0.8rem', color:'#6b7280', marginTop:'2px'}}>
+                                  Qty: {item.qty} × ₹{item.price} = ₹{item.price * item.qty}
+                                </div>
+                                {item.vendorNotes && (
+                                  <div style={{fontSize:'0.8rem', color:'#1f2937', marginTop:'4px', fontStyle:'italic'}}>
+                                    Notes: {item.vendorNotes}
+                                  </div>
+                                )}
+                              </div>
+                              
+                              <div style={{display:'flex', alignItems:'center', gap:'8px'}}>
+                                <div style={{
+                                  padding:'4px 8px',
+                                  borderRadius:'12px',
+                                  fontSize:'0.75rem',
+                                  fontWeight:'600',
+                                  background: productStatus === 'confirmed' ? '#dcfce7' : 
+                                            productStatus === 'rejected' ? '#fee2e2' :
+                                            productStatus === 'delivered' ? '#d1fae5' : '#f3f4f6',
+                                  color: productStatus === 'confirmed' ? '#166534' : 
+                                        productStatus === 'rejected' ? '#dc2626' :
+                                        productStatus === 'delivered' ? '#059669' : '#6b7280'
+                                }}>
+                                  {productStatus === 'delivered' ? 'PICKED UP' : productStatus.toUpperCase()}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Simplified Product action buttons - Only 3 states: Pending, Confirmed, Rejected */}
+                            <div style={{display:'flex', gap:'6px', marginTop:'8px'}}>
+                              {productStatus === 'pending' && (
+                                <>
+                                  <button
+                                    onClick={() => updateProductStatus(order._id, item.product._id, 'confirmed')}
+                                    disabled={isUpdating}
+                                    style={{
+                                      padding:'4px 12px',
+                                      fontSize:'0.8rem',
+                                      background:'#10b981',
+                                      color:'white',
+                                      border:'none',
+                                      borderRadius:'4px',
+                                      cursor:'pointer'
+                                    }}
+                                  >
+                                    {isUpdating ? '...' : '✓ Confirm'}
+                                  </button>
+                                  <button
+                                    onClick={() => updateProductStatus(order._id, item.product._id, 'rejected', 'Currently unavailable')}
+                                    disabled={isUpdating}
+                                    style={{
+                                      padding:'4px 12px',
+                                      fontSize:'0.8rem',
+                                      background:'#ef4444',
+                                      color:'white',
+                                      border:'none',
+                                      borderRadius:'4px',
+                                      cursor:'pointer'
+                                    }}
+                                  >
+                                    {isUpdating ? '...' : '✗ Reject'}
+                                  </button>
+                                </>
+                              )}
+                              
+                              {productStatus === 'confirmed' && (
+                                <button
+                                  onClick={() => updateProductStatus(order._id, item.product._id, 'delivered')}
+                                  disabled={isUpdating}
+                                  style={{
+                                    padding:'4px 12px',
+                                    fontSize:'0.8rem',
+                                    background:'#059669',
+                                    color:'white',
+                                    border:'none',
+                                    borderRadius:'4px',
+                                    cursor:'pointer'
+                                  }}
+                                >
+                                  {isUpdating ? '...' : '📦 Customer Picked Up'}
+                                </button>
+                              )}
+
+                              {/* Always show option to add notes (except for delivered items) */}
+                              {productStatus !== 'delivered' && (
+                                <button
+                                  onClick={() => {
+                                    const notes = prompt('Add notes for this product:', item.vendorNotes || '');
+                                    if (notes !== null) {
+                                      updateProductStatus(order._id, item.product._id, productStatus, notes);
+                                    }
+                                  }}
+                                  disabled={isUpdating}
+                                  style={{
+                                    padding:'4px 12px',
+                                    fontSize:'0.8rem',
+                                    background:'#6b7280',
+                                    color:'white',
+                                    border:'none',
+                                    borderRadius:'4px',
+                                    cursor:'pointer'
+                                  }}
+                                >
+                                  📝 Notes
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div style={{display:'flex', gap:'8px', justifyContent:'flex-end'}}>
+                    <button 
+                      onClick={() => {
+                        setSelectedOrder(order._id);
+                        setStatusUpdate({ status: order.status || 'pending', notes: order.notes || '' });
+                      }}
+                      className="btn-outline"
+                    >
+                      Update Status
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Status Update Modal */}
+          {selectedOrder && (
+            <div style={{
+              position:'fixed', top:0, left:0, right:0, bottom:0,
+              background:'rgba(0,0,0,0.5)', zIndex:1000,
+              display:'flex', alignItems:'center', justifyContent:'center',
+              padding:'1rem'
+            }}>
+              <div style={{
+                background:'white', borderRadius:'8px', padding:'1.5rem',
+                maxWidth:'500px', width:'100%', maxHeight:'80vh', overflow:'auto'
+              }}>
+                <h3 style={{margin:'0 0 1rem', color:'#1f2937'}}>Update Order Status</h3>
+                
+                <div style={{marginBottom:'1rem'}}>
+                  <label style={{display:'block', marginBottom:'4px', fontWeight:'600'}}>Status</label>
+                  <select 
+                    value={statusUpdate.status} 
+                    onChange={(e) => setStatusUpdate(prev => ({...prev, status: e.target.value}))}
+                    className="input-blue"
+                  >
+                    <option value="pending">Pending</option>
+                    <option value="confirmed">Confirmed</option>
+                    <option value="delivered">Picked Up</option>
+                    <option value="rejected">Rejected</option>
+                  </select>
+                </div>
+
+                <div style={{marginBottom:'1.5rem'}}>
+                  <label style={{display:'block', marginBottom:'4px', fontWeight:'600'}}>Notes (Optional)</label>
+                  <textarea 
+                    value={statusUpdate.notes} 
+                    onChange={(e) => setStatusUpdate(prev => ({...prev, notes: e.target.value}))}
+                    placeholder="Add any notes for the customer..."
+                    className="input-blue"
+                    rows={3}
+                  />
+                </div>
+
+                <div style={{display:'flex', gap:'8px', justifyContent:'flex-end'}}>
+                  <button 
+                    onClick={() => {
+                      setSelectedOrder(null);
+                      setStatusUpdate({ status: '', notes: '' });
+                    }}
+                    className="btn-outline" 
+                    disabled={updatingStatus}
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={() => updateOrderStatus(selectedOrder, statusUpdate.status, statusUpdate.notes)}
+                    className="btn-primary" 
+                    disabled={updatingStatus}
+                  >
+                    {updatingStatus ? 'Updating...' : 'Update Status'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {tab === 'shop' && (
         <form onSubmit={saveShop} className="vendor-card" style={{ display:'grid', gap:'0.75rem', maxWidth: 640, margin:'1rem' }}>

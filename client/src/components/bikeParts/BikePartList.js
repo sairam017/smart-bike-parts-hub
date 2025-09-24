@@ -8,7 +8,6 @@ import useAuth from '../../hooks/useAuth';
 import './bikeParts.css';
 import { formatINR } from '../../utils/currency';
 import { calculateDistanceToShop, formatDistance, debugDistance } from '../../utils/distanceUtils';
-import EmailModal from '../email/EmailModal';
 import OrderModal from '../orders/OrderModal';
 import mapsService from '../../services/mapsService';
 import ProductMap from '../maps/ProductMap';
@@ -28,7 +27,35 @@ const BikePartList = () => {
     const [selectedModel, setSelectedModel] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
-    const { location: userLoc } = useContext(LocationContext) || {};
+    
+    // Location tracking with stabilization to prevent GPS fluctuation re-renders
+    const { location: rawUserLoc } = useContext(LocationContext) || {};
+    const [stableUserLoc, setStableUserLoc] = useState(null);
+    const lastLocationRef = useRef(null);
+    
+    useEffect(() => {
+        if (!rawUserLoc) {
+            setStableUserLoc(null);
+            return;
+        }
+        
+        // If this is the first location, use it immediately
+        if (!lastLocationRef.current) {
+            setStableUserLoc(rawUserLoc);
+            lastLocationRef.current = rawUserLoc;
+            return;
+        }
+        
+        // Only update if significant movement (>50m) to prevent GPS fluctuation re-renders
+        const distance = calculateDistanceToShop(lastLocationRef.current, [rawUserLoc.longitude, rawUserLoc.latitude]);
+        if (distance > 0.05) { // 50 meters threshold
+            console.log('[Location] Significant movement detected:', (distance * 1000).toFixed(0), 'm');
+            setStableUserLoc(rawUserLoc);
+            lastLocationRef.current = rawUserLoc;
+        }
+    }, [rawUserLoc]);
+    
+    const userLoc = stableUserLoc;
     const [distanceCache, setDistanceCache] = useState({});
     const [prefShopProductId, setPrefShopProductId] = useState(null);
     const [selectedIds, setSelectedIds] = useState([]);
@@ -53,15 +80,15 @@ const BikePartList = () => {
         throttleTimer.current = setTimeout(() => {
             setMousePosition({ x, y });
             throttleTimer.current = null;
-        }, 16); // ~60fps throttling
+        }, 100); // More aggressive throttling to prevent blinking
     }, []);
 
-    // Email modal state
-    const [showEmailModal, setShowEmailModal] = useState(false);
-    const [emailType, setEmailType] = useState('products'); // 'products' or 'shops'
+
     
-    // Order modal state
+    // Order modal state (used by individual part order buttons)
     const [showOrderModal, setShowOrderModal] = useState(false);
+    
+
     const [orderSuccess, setOrderSuccess] = useState(false);
     
     // Shop locations for selected parts
@@ -183,18 +210,35 @@ const BikePartList = () => {
             return;
         }
         
+        console.log('Distance calculation triggered, userLoc accuracy:', userLoc.accuracy);
+        
         const next = {};
         partsWithIds.forEach(({ id, shop }) => {
             if (!shop?.location?.coordinates) return;
             const distance = calculateDistanceToShop(userLoc, shop.location.coordinates);
-            if (distance != null) next[id] = distance;
+            // Round to nearest 10m to prevent tiny fluctuations from causing re-renders
+            if (distance != null) next[id] = Math.round(distance * 100) / 100;
         });
         
         setDistanceCache(prev => {
-            // Only update if there are actual changes
-            const hasChanges = JSON.stringify(prev) !== JSON.stringify(next);
-            if (!hasChanges) return prev;
-            return next;
+            // Check if there are actual changes without expensive JSON.stringify
+            const prevKeys = Object.keys(prev);
+            const nextKeys = Object.keys(next);
+            
+            if (prevKeys.length !== nextKeys.length) {
+                console.log('Distance cache updated: different number of entries');
+                return next;
+            }
+            
+            for (const key of nextKeys) {
+                if (Math.abs((prev[key] || 0) - (next[key] || 0)) > 0.01) { // Only update if difference > 10m
+                    console.log('Distance cache updated: significant distance change');
+                    return next;
+                }
+            }
+            
+            console.log('Distance cache not updated: no significant changes');
+            return prev; // No changes
         });
         
         const entries = Object.entries(next).sort((a,b)=> a[1]-b[1]);
@@ -219,35 +263,29 @@ const BikePartList = () => {
             const isSelected = selectedIds.includes(part._id);
             const isPref = prefShopProductId === part._id;
             
+            // Create stable object reference only when values actually change
             return {
-                ...part,
-                distance,
-                isSelected,
-                isPref,
-                key: `${part._id}-${isSelected}-${distance}`
+                _id: part._id,
+                name: part.name,
+                model: part.model,
+                company: part.company,
+                price: part.price,
+                images: part.images,
+                description: part.description,
+                shop: part.shop,
+                type: part.type,
+                vehicleYear: part.vehicleYear,
+                countInStock: part.countInStock,
+                distance: distance,
+                isSelected: isSelected,
+                isPref: isPref
             };
         });
     }, [parts, distanceCache, selectedIds, prefShopProductId]);
 
-    const handleEmailProducts = () => {
-        setEmailType('products');
-        setShowEmailModal(true);
-    };
 
-    const handlePlaceOrder = () => {
-        if (!user) {
-            alert('Please login to place an order');
-            navigate('/login');
-            return;
-        }
-        
-        if (selectedIds.length === 0) {
-            alert('Please select at least one product to place an order');
-            return;
-        }
-        
-        setShowOrderModal(true);
-    };
+
+
 
     const handleOrderSuccess = (orderResult) => {
         setOrderSuccess(true);
@@ -265,20 +303,37 @@ const BikePartList = () => {
         quantity: 1 // Default quantity, can be made dynamic later
     }));
 
-    const currentUserLocation = userLoc ? {
-        lat: userLoc.latitude,
-        lng: userLoc.longitude
-    } : null;
+    const currentUserLocation = useMemo(() => 
+        userLoc ? {
+            lat: userLoc.latitude,
+            lng: userLoc.longitude
+        } : null, 
+        [userLoc?.latitude, userLoc?.longitude]
+    );
 
-    // Fetch shop locations for selected parts
+    // Debounced fetch shop locations for selected parts to prevent rapid API calls
+    const debounceTimer = useRef(null);
     useEffect(() => {
         if (selectedIds.length === 0) {
             setSelectedPartsShops([]);
+            setLoadingShops(false);
+            if (debounceTimer.current) {
+                clearTimeout(debounceTimer.current);
+                debounceTimer.current = null;
+            }
             return;
         }
 
-        const fetchShopsForSelectedParts = async () => {
-            setLoadingShops(true);
+        // Clear existing timer
+        if (debounceTimer.current) {
+            clearTimeout(debounceTimer.current);
+        }
+
+        // Set loading state immediately for better UX
+        setLoadingShops(true);
+
+        // Debounce the API call by 300ms
+        debounceTimer.current = setTimeout(async () => {
             try {
                 const shopsData = await mapsService.getShopsForProducts(selectedIds);
                 const formattedShops = mapsService.formatShopsForMap(shopsData, currentUserLocation);
@@ -295,10 +350,21 @@ const BikePartList = () => {
             } finally {
                 setLoadingShops(false);
             }
-        };
+        }, 300); // 300ms debounce
 
-        fetchShopsForSelectedParts();
+        // Cleanup function
+        return () => {
+            if (debounceTimer.current) {
+                clearTimeout(debounceTimer.current);
+                debounceTimer.current = null;
+            }
+        };
     }, [selectedIds, currentUserLocation]);
+
+    // Memoized checkbox handler to prevent re-renders
+    const handleCheckboxChange = useCallback((partId, checked) => {
+        setSelectedIds(ids => checked ? [...ids, partId] : ids.filter(id => id !== partId));
+    }, []);
 
     // Only after all hooks, handle conditional rendering
     if (loading) {
@@ -343,41 +409,6 @@ const BikePartList = () => {
                     navigate({ pathname: '/parts', search: params.toString() });
                  }} className="btn-outline" style={{padding:'6px 12px'}}>Reset</button>
 
-                <button 
-                    onClick={handleEmailProducts}
-                    disabled={parts.length === 0}
-                    style={{
-                        padding: '10px 16px',
-                        background: parts.length === 0 ? '#9ca3af' : '#7c3aed',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '8px',
-                        fontSize: '14px',
-                        fontWeight: '600',
-                        cursor: parts.length === 0 ? 'not-allowed' : 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-                        transition: 'all 0.2s ease'
-                    }}
-                    onMouseEnter={(e) => {
-                        if (parts.length > 0) {
-                            e.target.style.transform = 'translateY(-1px)';
-                            e.target.style.boxShadow = '0 4px 8px rgba(0,0,0,0.15)';
-                            e.target.style.background = '#6d28d9';
-                        }
-                    }}
-                    onMouseLeave={(e) => {
-                        if (parts.length > 0) {
-                            e.target.style.transform = 'translateY(0px)';
-                            e.target.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
-                            e.target.style.background = '#7c3aed';
-                        }
-                    }}
-                >
-                    📧 Email Product List
-                </button>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginLeft: 'auto' }}>
                     {selectedIds.length > 0 && (
                         <div style={{
@@ -403,35 +434,13 @@ const BikePartList = () => {
                 <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', margin:'0 0 .5rem'}}>
                     <div style={{display:'flex', alignItems:'center', gap:'1rem'}}>
                         <h2 style={{margin:0}}>Available Parts</h2>
-                        <button
-                            disabled={!selectedIds.length}
-                            style={{
-                                padding:'8px 18px', 
-                                borderRadius:8, 
-                                background: selectedIds.length ? '#059669' : '#9ca3af', 
-                                color:'#fff', 
-                                fontWeight:600, 
-                                border:'none', 
-                                fontSize:'1rem',
-                                cursor: selectedIds.length ? 'pointer' : 'not-allowed',
-                                transition: 'all 0.2s ease'
-                            }}
-                            onClick={handlePlaceOrder}
-                            onMouseEnter={(e) => {
-                                if (selectedIds.length > 0) {
-                                    e.target.style.background = '#047857';
-                                    e.target.style.transform = 'translateY(-1px)';
-                                }
-                            }}
-                            onMouseLeave={(e) => {
-                                if (selectedIds.length > 0) {
-                                    e.target.style.background = '#059669';
-                                    e.target.style.transform = 'translateY(0px)';
-                                }
-                            }}
-                        >
-                            🛒 Place Order ({selectedIds.length} {selectedIds.length === 1 ? 'item' : 'items'})
-                        </button>
+                        
+                        {/* Get Recommendations Button */}
+                        <GetRecommendationsButton 
+                            selectedIds={selectedIds}
+                            parts={parts}
+                            navigate={navigate}
+                        />
                     </div>
                     {recommendations.length > 0 && (
                         <div style={{marginLeft:'2rem', background:'#f1f5f9', padding:'0.5rem 1rem', borderRadius:10}}>
@@ -687,11 +696,13 @@ const BikePartList = () => {
                 <div className="parts-list">
                     {partsDisplay.map(part => {
                         return (
-                            <div key={part.key} className="part-card compact" style={part.isPref ? {outline:'2px solid #1d4ed8'} : {}}>
+                            <div key={part._id} className="part-card compact" style={part.isPref ? {outline:'2px solid #1d4ed8'} : {}}>
                                 <div style={{display:'flex', alignItems:'center', gap:6}}>
-                                    <input type="checkbox" checked={part.isSelected} onChange={e => {
-                                        setSelectedIds(ids => e.target.checked ? [...ids, part._id] : ids.filter(id => id !== part._id));
-                                    }} />
+                                    <input 
+                                        type="checkbox" 
+                                        checked={part.isSelected} 
+                                        onChange={e => handleCheckboxChange(part._id, e.target.checked)} 
+                                    />
                                     <Link to={`/product/${part._id}`} style={{display:'block', flex:1, position:'relative'}}>
                                         {part.images?.length ? (
                                             <>
@@ -871,15 +882,7 @@ const BikePartList = () => {
                 </div>
             )}
             
-            {/* Email Modal */}
-            <EmailModal
-                isOpen={showEmailModal}
-                onClose={() => setShowEmailModal(false)}
-                products={parts}
-                shops={[]}
-                userLocation={currentUserLocation}
-                type="products"
-            />
+
 
             {/* Order Modal */}
             <OrderModal
@@ -919,6 +922,67 @@ function ensureAbsolute(url){
 }
 
 const selStyle = { padding:'6px 10px', border:'1px solid #cbd5e1', borderRadius:8, background:'#fff', fontSize:'.8rem' };
+
+
+
+
+// Memoized Get Recommendations Button to prevent blinking
+const GetRecommendationsButton = React.memo(({ selectedIds, parts, navigate }) => {
+    const handleClick = useCallback(() => {
+        if (selectedIds.length > 0) {
+            const selectedProducts = parts.filter(part => selectedIds.includes(part._id));
+            navigate('/recommendations', { 
+                state: { 
+                    selectedProducts,
+                    fromParts: true 
+                } 
+            });
+        }
+    }, [selectedIds, parts, navigate]);
+
+    const handleMouseEnter = useCallback((e) => {
+        if (selectedIds.length > 0) {
+            e.target.style.background = '#6d28d9';
+            e.target.style.transform = 'translateY(-1px)';
+        }
+    }, [selectedIds.length]);
+
+    const handleMouseLeave = useCallback((e) => {
+        if (selectedIds.length > 0) {
+            e.target.style.background = '#7c3aed';
+            e.target.style.transform = 'translateY(0px)';
+        }
+    }, [selectedIds.length]);
+
+    const buttonStyle = useMemo(() => ({
+        padding:'8px 18px', 
+        borderRadius:8, 
+        background: selectedIds.length ? '#7c3aed' : '#9ca3af', 
+        color:'#fff', 
+        fontWeight:600, 
+        border:'none', 
+        fontSize:'1rem',
+        cursor: selectedIds.length ? 'pointer' : 'not-allowed',
+        transition: 'all 0.2s ease',
+        marginLeft: '12px'
+    }), [selectedIds.length]);
+
+    const buttonText = useMemo(() => (
+        `🤖 Get Recommendations (${selectedIds.length} ${selectedIds.length === 1 ? 'item' : 'items'})`
+    ), [selectedIds.length]);
+
+    return (
+        <button
+            disabled={!selectedIds.length}
+            style={buttonStyle}
+            onClick={handleClick}
+            onMouseEnter={handleMouseEnter}
+            onMouseLeave={handleMouseLeave}
+        >
+            {buttonText}
+        </button>
+    );
+});
 
 export default BikePartList;
  
