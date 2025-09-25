@@ -80,7 +80,7 @@ const LandingPage = () => {
     // If nothing typed and no specific category chosen, do nothing
     if (!query && (!selCategory || selCategory === 'all')) {
       setSearchFeedback('Enter a keyword or choose a category');
-      return; // silently ignore or add alert if desired
+      return;
     }
     // If category chosen but no query, allow category navigation
     if (!query && selCategory && selCategory !== 'all') {
@@ -90,22 +90,13 @@ const LandingPage = () => {
       setSearchFeedback('');
       return;
     }
-    // Build a list of searchable strings from loaded sample to validate query
-    const haystack = [];
-    allPartsSample.forEach(p => {
-      if (!p) return;
-      ['name','model','company','brand','type'].forEach(k => { if (p[k]) haystack.push(String(p[k]).toLowerCase()); });
-    });
-    companies.forEach(c => haystack.push(String(c).toLowerCase()));
-    types.forEach(t => haystack.push(String(t).toLowerCase()));
-    const qLower = query.toLowerCase();
-    const matched = haystack.some(h => h.includes(qLower));
-  if (!matched) { setSearchFeedback('No matching products yet. Try another term.'); return; }
+    // Allow all searches to proceed - validation should happen on server side
+    // Remove client-side validation that was preventing searches
     const params = new URLSearchParams();
     params.set('keyword', query);
     if (selCategory && selCategory !== 'all') params.set('type', selCategory);
     navigate(`/parts?${params.toString()}`);
-  setSearchFeedback('');
+    setSearchFeedback('');
   };
 
   useEffect(() => {

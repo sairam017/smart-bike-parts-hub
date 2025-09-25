@@ -133,11 +133,18 @@ const BikePartList = () => {
         setSelectedYear(y);
         setSearchTerm(kw);
         setLoading(true);
+        const initialFilters = {};
+        if (c) initialFilters.company = c;
+        if (t) initialFilters.type = t;
+        if (m) initialFilters.model = m;
+        if (y) initialFilters.year = y;
+        if (kw) initialFilters.keyword = kw;
+        
         Promise.all([
             bikePartsService.getCompanies(),
             bikePartsService.getTypes(),
             bikePartsService.getYears(),
-            bikePartsService.getParts({ company: c || undefined, type: t || undefined, model: m || undefined }),
+            bikePartsService.getParts(initialFilters),
         ])
         .then(([cRes, tRes, yRes, pRes]) => {
             setCompanies(cRes.data?.companies || []);
@@ -382,7 +389,7 @@ const BikePartList = () => {
                 <form onSubmit={e=> { e.preventDefault();
                     const params = new URLSearchParams(location.search);
                     if (searchTerm) params.set('keyword', searchTerm); else params.delete('keyword');
-                    navigate({ pathname: '/parts', search: params.toString() });
+                    navigate(`/parts?${params.toString()}`);
                 }} style={{display:'flex', gap:6, alignItems:'center'}}>
                     <input value={searchTerm} onChange={e=> setSearchTerm(e.target.value)} placeholder="Search part name" style={{padding:'6px 10px', border:'1px solid #cbd5e1', borderRadius:8, fontSize:'.8rem'}} />
                     <button type="submit" className="btn-outline" style={{padding:'6px 12px'}}>Search</button>
@@ -405,8 +412,7 @@ const BikePartList = () => {
                     {years.map(y => <option key={y} value={y}>{y}</option>)}
                 </select>
                 <button onClick={()=> { setSelectedType(''); setSelectedCompany(''); setSelectedModel(''); setSelectedYear(''); setSearchTerm('');
-                    const params = new URLSearchParams();
-                    navigate({ pathname: '/parts', search: params.toString() });
+                    navigate('/parts');
                  }} className="btn-outline" style={{padding:'6px 12px'}}>Reset</button>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginLeft: 'auto' }}>
