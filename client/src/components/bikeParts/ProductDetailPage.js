@@ -925,7 +925,7 @@ const ProductDetailPage = () => {
           boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
           marginBottom: '1rem'
         }}>
-          <h2 style={{ margin: '0 0 1rem 0', color: '#1e293b' }}>🤖 AI Recommendations</h2>
+          <h2 style={{ margin: '0 0 1rem 0', color: '#1e293b' }}>Recommendations</h2>
           
           <Recommendations 
             productId={product._id} 

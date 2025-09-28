@@ -315,7 +315,7 @@ const Recommendations = ({
           fontSize: '1.2rem',
           fontWeight: 600
         }}>
-          🤖 AI Recommendations
+          Recommendations (Likely related to your product)
         </h3>
         <div style={{ 
           textAlign: 'center', 
@@ -394,7 +394,7 @@ const Recommendations = ({
           fontSize: '1.2rem',
           fontWeight: 600
         }}>
-          🤖 AI Recommendations
+          Recommendations
         </h3>
         <div style={{ 
           fontSize: '0.8rem',
